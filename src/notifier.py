@@ -3,7 +3,7 @@ import smtplib
 import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Optional
+from typing import Optional, Dict    # ← 加上 Dict
 from .config import Config
 from .utils import retry_on_failure, setup_logger
 
