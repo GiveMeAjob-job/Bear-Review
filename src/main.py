@@ -19,6 +19,7 @@ logger = setup_logger("task_master.main")
 
 
 def main():
+    """主函数"""
     # CLI 参数
     parser = argparse.ArgumentParser(description="Generate periodical summaries")
     parser.add_argument(
@@ -32,17 +33,23 @@ def main():
         action="store_true",
         help="Skip all notifications - only print summary"
     )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable verbose logging"
-    )
     args = parser.parse_args()
 
     # 环境 & 配置
     cfg = Config.from_env()
-    if not cfg.notion_token or not cfg.notion_db_id:
-        logger.error("❌ 必需的环境变量未设置: NOTION_TOKEN, NOTION_DB_ID")
+
+    # 调试信息
+    logger.info(f"配置加载完成:")
+    logger.info(f"- NOTION_TOKEN: {'已设置' if cfg.notion_token else '未设置'}")
+    logger.info(f"- NOTION_DB_ID: {cfg.notion_db_id if cfg.notion_db_id else '未设置'}")
+    logger.info(f"- LLM_PROVIDER: {cfg.llm_provider}")
+
+    if not cfg.notion_token:
+        logger.error("❌ 环境变量 NOTION_TOKEN 未设置")
+        sys.exit(1)
+
+    if not cfg.notion_db_id:
+        logger.error("❌ 环境变量 NOTION_DB_ID 未设置")
         sys.exit(1)
 
     try:
@@ -60,11 +67,11 @@ def main():
         logger.info(f"📋 找到 {len(tasks)} 个已完成任务")
 
         if not tasks:
-            logger.warning("⚠️ 没有找到已完成任务")
-            answer = f"# {period.title()} Review\n\n今日暂无已完成任务，继续加油！💪"
+            answer = f"# {period.title()} Review\n\n暂无已完成任务，继续努力！💪"
         else:
             # 聚合统计
             stats, titles = summarizer.aggregate_tasks(tasks)
+            logger.info(f"📊 统计: {stats}")
 
             # 构建提示词
             prompt = summarizer.build_prompt(stats, titles, period)

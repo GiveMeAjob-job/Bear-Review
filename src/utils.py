@@ -1,8 +1,8 @@
-# src/utils.py - 🆕 工具函数
+# src/utils.py - 工具函数
 import logging
 import time
 from functools import wraps
-from datetime import datetime, date
+from datetime import datetime, date, timedelta  # 添加 timedelta
 import pytz
 
 
@@ -24,7 +24,6 @@ def setup_logger(name: str = "task_master") -> logging.Logger:
 
 def retry_on_failure(max_retries: int = 3, delay: float = 1.0):
     """重试装饰器"""
-
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -37,9 +36,7 @@ def retry_on_failure(max_retries: int = 3, delay: float = 1.0):
                     logging.warning(f"尝试 {attempt + 1} 失败: {e}, 重试中...")
                     time.sleep(delay * (2 ** attempt))  # 指数退避
             return None
-
         return wrapper
-
     return decorator
 
 
