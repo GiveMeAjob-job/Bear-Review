@@ -1,9 +1,9 @@
 import argparse
 import os
-
 import notion_client
 import summarizer
 import llm_client
+
 
 
 def main():
@@ -30,3 +30,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

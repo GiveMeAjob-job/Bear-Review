@@ -30,3 +30,4 @@ def build_prompt(stats: Dict, titles: List[str], header: str, highlight: str, ne
         f"2. 1 \u4e2a\u6700\u5927\u6539\u8fdb\u70b9\n"
         f"3. {next_period} 3 \u6761\u884c\u52a8\u5efa\u8bae\uff08\u4fdd\u6301\u53ef\u6267\u884c\uff09"
     )
+
