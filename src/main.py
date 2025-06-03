@@ -4,69 +4,98 @@ Task-Master 入口脚本
 python -m src.main --period daily        # 正常执行
 python -m src.main --period daily --dry-run   # 只打印总结，不发通知
 """
-from __future__ import annotations
-
 import argparse
-import os
 import sys
 from datetime import datetime
 
-# 相对导入：保证在“src”作为 package 时可用
-from . import notion_client, summarizer, llm_client, notifier, config, utils
+from .config import Config
+from .notion_client import NotionClient
+from .summarizer import TaskSummarizer
+from .llm_client import LLMClient
+from .notifier import Notifier
+from .utils import setup_logger
 
-logger = utils.setup_logger("task_master.main")
+logger = setup_logger("task_master.main")
 
-# ──────────────────────── CLI 参数 ────────────────────────
-parser = argparse.ArgumentParser(description="Generate periodical summaries")
-parser.add_argument(
-    "--period",
-    choices=["daily", "weekly", "monthly"],
-    required=True,
-    help="Summary period to run"
-)
-parser.add_argument(
-    "--dry-run",
-    action="store_true",
-    help="Skip all notifications - only print summary"
-)
-args = parser.parse_args()
 
-# ──────────────────────── 环境 & 配置 ────────────────────────
-cfg = config.Config.from_env()
-if not cfg.notion_db_id:
-    logger.error("❌ 环境变量 NOTION_DB_ID 未设置")
-    sys.exit(1)
+def main():
+    # CLI 参数
+    parser = argparse.ArgumentParser(description="Generate periodical summaries")
+    parser.add_argument(
+        "--period",
+        choices=["daily", "weekly", "monthly"],
+        required=True,
+        help="Summary period to run"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Skip all notifications - only print summary"
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging"
+    )
+    args = parser.parse_args()
 
-# ──────────────────────── 查询任务 ────────────────────────
-period = args.period
-logger.info(f"🟢 Start {period} summarization - dry-run={args.dry_run}")
+    # 环境 & 配置
+    cfg = Config.from_env()
+    if not cfg.notion_token or not cfg.notion_db_id:
+        logger.error("❌ 必需的环境变量未设置: NOTION_TOKEN, NOTION_DB_ID")
+        sys.exit(1)
 
-if period == "daily":
-    tasks = notion_client.query_today_tasks(cfg.notion_db_id)
-    prompt = summarizer.build_daily_prompt(tasks)
-elif period == "weekly":
-    tasks = notion_client.query_this_week_tasks(cfg.notion_db_id)
-    prompt = summarizer.build_weekly_prompt(tasks)
-elif period == "monthly":
-    tasks = notion_client.query_this_month_tasks(cfg.notion_db_id)
-    prompt = summarizer.build_monthly_prompt(tasks)
-else:                         # 逻辑上不会到这
-    raise ValueError(f"Unsupported period: {period}")
+    try:
+        # 初始化组件
+        notion = NotionClient(cfg)
+        summarizer = TaskSummarizer()
+        llm = LLMClient(cfg)
+        notifier = Notifier(cfg)
 
-# ──────────────────────── 调用 LLM 生成总结 ────────────────────────
-answer = llm_client.ask_llm(prompt)
-print("\n" + "=" * 60)
-print(answer)
-print("=" * 60 + "\n")
+        period = args.period
+        logger.info(f"🟢 开始 {period} 总结 - dry-run={args.dry_run}")
 
-# ──────────────────────── 通知 ────────────────────────
-if args.dry_run:
-    logger.info("Dry-run mode → 不发送任何通知")
-    sys.exit(0)
+        # 查询任务
+        tasks = notion.query_period_tasks(period)
+        logger.info(f"📋 找到 {len(tasks)} 个已完成任务")
 
-title = f"Task-Master {period.title()} Review · {datetime.now().date()}"
-push_results = notifier.notify_all(title, answer)
-succ = [k for k, v in push_results.items() if v]
-fail = [k for k, v in push_results.items() if not v]
+        if not tasks:
+            logger.warning("⚠️ 没有找到已完成任务")
+            answer = f"# {period.title()} Review\n\n今日暂无已完成任务，继续加油！💪"
+        else:
+            # 聚合统计
+            stats, titles = summarizer.aggregate_tasks(tasks)
 
-logger.info(f"📨 Push done: success={succ}, fail={fail}")
+            # 构建提示词
+            prompt = summarizer.build_prompt(stats, titles, period)
+
+            # 调用 LLM 生成总结
+            answer = llm.ask_llm(prompt)
+
+        # 打印结果
+        print("\n" + "=" * 60)
+        print(answer)
+        print("=" * 60 + "\n")
+
+        # 通知
+        if args.dry_run:
+            logger.info("Dry-run mode → 不发送任何通知")
+            return
+
+        title = f"Task-Master {period.title()} Review · {datetime.now().date()}"
+        push_results = notifier.notify_all(title, answer)
+
+        succ = [k for k, v in push_results.items() if v]
+        fail = [k for k, v in push_results.items() if not v]
+
+        logger.info(f"📨 推送完成: 成功={succ}, 失败={fail}")
+
+    except Exception as e:
+        logger.error(f"❌ 运行失败: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
