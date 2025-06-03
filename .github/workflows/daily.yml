@@ -1,59 +1,59 @@
-# .github/workflows/daily.yml
 name: Daily Review
 
 on:
   schedule:
-    # 每天 UTC-23:30 ＝ 美东 18:30 ＝ 北京 07:30
-    - cron: '0 4 * * *'
+    - cron: '30 23 * * *'          # UTC 时间
   workflow_dispatch:
     inputs:
       dry_run:
-        description: '试运行（跳过通知）'
-        required: false
-        default: false
+        description: '试运行（不发送通知）'
         type: boolean
+        default: false
       verbose:
-        description: '输出调试日志'
-        required: false
-        default: false
+        description: '详细日志'
         type: boolean
+        default: false
 
 jobs:
   daily-review:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 15            # ⬆︎ 可拉长一点
 
     steps:
       # 1️⃣ 取代码
       - uses: actions/checkout@v4
 
-      # 2️⃣ Python + 自动 pip cache
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      # 2️⃣ Python + pip cache
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'            # 自动缓存 ~/.cache/pip
+          cache: pip
 
       # 3️⃣ 安装依赖
-      - name: Install requirements
-        run: pip install -r requirements.txt
+      - run: pip install --no-cache-dir -r requirements.txt
 
-      # 4️⃣ 运行总结脚本
+      # 4️⃣ （可选）打印关键 env，手动排错时有用
+      - name: Debug env
+        run: |
+          echo "NOTION_DB_ID=$NOTION_DB_ID"
+          echo "TOK_LEN=${#NOTION_TOKEN}"
+
+      # 5️⃣ 执行脚本
       - name: Run daily summary
         env:
-          NOTION_TOKEN:      ${{ secrets.NOTION_TOKEN }}
-          NOTION_DB_ID:      ${{ secrets.NOTION_DB_ID }}
-          DEEPSEEK_KEY:      ${{ secrets.DEE PSEEK_KEY }}
-          OPENAI_KEY:        ${{ secrets.OPENAI_KEY }}
-          LLM_PROVIDER:      ${{ secrets.LLM_PROVIDER }}
-          TELEGRAM_BOT_TOKEN:${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:  ${{ secrets.TELEGRAM_CHAT_ID }}
-          EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
-          EMAIL_USERNAME:    ${{ secrets.EMAIL_USERNAME }}
-          EMAIL_PASSWORD:    ${{ secrets.EMAIL_PASSWORD }}
-          TIMEZONE:          ${{ secrets.TIMEZONE }}
+          NOTION_TOKEN:       ${{ secrets.NOTION_TOKEN }}
+          NOTION_DB_ID:       ${{ secrets.NOTION_DB_ID }}
+          DEEPSEEK_KEY:       ${{ secrets.DEEPSEEK_KEY }}
+          OPENAI_KEY:         ${{ secrets.OPENAI_KEY }}
+          LLM_PROVIDER:       ${{ secrets.LLM_PROVIDER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          EMAIL_SMTP_SERVER:  ${{ secrets.EMAIL_SMTP_SERVER }}
+          EMAIL_USERNAME:     ${{ secrets.EMAIL_USERNAME }}
+          EMAIL_PASSWORD:     ${{ secrets.EMAIL_PASSWORD }}
+          TIMEZONE:           ${{ secrets.TIMEZONE }}
         run: |
           python -m src.main \
             --period daily \
-            ${{ inputs.dry_run == 'true' && '--dry-run' || '' }} \
-            ${{ inputs.verbose == 'true' && '--verbose' || '' }}
+            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
+            ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
