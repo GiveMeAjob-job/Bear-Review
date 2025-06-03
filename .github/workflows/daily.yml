@@ -30,7 +30,7 @@ jobs:
           cache: pip
 
       # 3️⃣ 安装依赖
-      - run: pip install --no-cache-dir -r requirements.txt
+      - run: pip install -r requirements.txt
 
       # 4️⃣ （可选）打印关键 env，手动排错时有用
       - name: Debug env
