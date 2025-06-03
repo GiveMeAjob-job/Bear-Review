@@ -34,8 +34,15 @@ class Notifier:
 
             url = f"https://api.telegram.org/bot{self.config.telegram_bot_token}/sendMessage"
 
+            # 确保 chat_id 是整数
+            try:
+                chat_id = int(self.config.telegram_chat_id)
+            except (ValueError, TypeError):
+                logger.error(f"无效的 Telegram Chat ID: {self.config.telegram_chat_id}")
+                return False
+
             payload = {
-                "chat_id": self.config.telegram_chat_id,
+                "chat_id": chat_id,
                 "text": full_message,
                 "parse_mode": "Markdown"
             }
