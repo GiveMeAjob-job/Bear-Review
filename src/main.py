@@ -33,6 +33,11 @@ def main():
         action="store_true",
         help="Skip all notifications - only print summary"
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging"
+    )
     args = parser.parse_args()
 
     # 设置日志级别
