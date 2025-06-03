@@ -1,0 +1,23 @@
+name: Monthly Review
+on:
+  schedule:
+    - cron: '0 1 1 * *'
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Run monthly summary
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
+        run: python src/main.py --period monthly
