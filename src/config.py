@@ -49,6 +49,6 @@ class Config:
             email_smtp_server=os.getenv("EMAIL_SMTP_SERVER"),
             email_username=os.getenv("EMAIL_USERNAME"),
             email_password=os.getenv("EMAIL_PASSWORD"),
-            timezone=os.getenv("TIMEZONE", "America/Toronto"),  # 改为多伦多时区
+            timezone=os.getenv("TIMEZONE", "America/Toronto") or "America/Toronto",  # 确保不为空
             max_retries=int(os.getenv("MAX_RETRIES", "3"))
         )
