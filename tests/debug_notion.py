@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # debug_notion.py - Notion API 调试脚本
 
-import os
-import requests
-import json
+import os, requests, json
 from urllib.parse import urlparse
+
+# ★ 新增三行 ----------------------------
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
 
 
 def test_notion_connection():

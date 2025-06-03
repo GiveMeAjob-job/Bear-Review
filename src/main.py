@@ -14,7 +14,7 @@ from .summarizer import TaskSummarizer
 from .llm_client import LLMClient
 from .notifier import Notifier
 from .utils import setup_logger
-
+from dotenv import load_dotenv
 logger = setup_logger("task_master.main")
 
 
