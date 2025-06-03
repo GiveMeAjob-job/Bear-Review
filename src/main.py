@@ -35,6 +35,11 @@ def main():
     )
     args = parser.parse_args()
 
+    # 设置日志级别
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.setLevel(logging.DEBUG)
+
     # 环境 & 配置
     cfg = Config.from_env()
 
