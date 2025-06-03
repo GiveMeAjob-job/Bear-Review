@@ -1,9 +1,9 @@
-# src/notifier.py - 🆕 通知推送
+# src/notifier.py - 通知推送（修复版）
 import smtplib
 import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Optional, Dict    # ← 加上 Dict
+from typing import Optional, Dict
 from .config import Config
 from .utils import retry_on_failure, setup_logger
 
@@ -22,7 +22,16 @@ class Notifier:
             return False
 
         try:
-            full_message = f"*{title}*\n\n{message}" if title else message
+            # 构建消息，避免 Markdown 解析错误
+            if title:
+                full_message = f"*{self._escape_markdown(title)}*\n\n{self._escape_markdown(message)}"
+            else:
+                full_message = self._escape_markdown(message)
+
+            # 限制消息长度（Telegram 限制 4096 字符）
+            if len(full_message) > 4000:
+                full_message = full_message[:3997] + "..."
+
             url = f"https://api.telegram.org/bot{self.config.telegram_bot_token}/sendMessage"
 
             payload = {
@@ -31,14 +40,38 @@ class Notifier:
                 "parse_mode": "Markdown"
             }
 
-            response = requests.post(url, json=payload)
-            response.raise_for_status()
-            logger.info("Telegram通知发送成功")
-            return True
+            response = requests.post(url, json=payload, timeout=10)
+
+            if response.status_code == 200:
+                logger.info("Telegram通知发送成功")
+                return True
+            else:
+                logger.error(f"Telegram API 错误 {response.status_code}: {response.text}")
+
+                # 如果 Markdown 解析失败，尝试纯文本
+                if "can't parse entities" in response.text.lower():
+                    logger.info("Markdown 解析失败，尝试纯文本发送")
+                    payload["parse_mode"] = None
+                    payload["text"] = f"{title}\n\n{message}" if title else message
+                    response = requests.post(url, json=payload, timeout=10)
+
+                    if response.status_code == 200:
+                        logger.info("Telegram通知发送成功（纯文本）")
+                        return True
+
+                return False
 
         except Exception as e:
             logger.error(f"Telegram通知发送失败: {e}")
             return False
+
+    def _escape_markdown(self, text: str) -> str:
+        """转义 Markdown 特殊字符"""
+        # Telegram Markdown v1 需要转义的字符
+        special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+        for char in special_chars:
+            text = text.replace(char, f'\\{char}')
+        return text
 
     @retry_on_failure(max_retries=2)
     def send_email(self, subject: str, content: str, to_email: Optional[str] = None) -> bool:
@@ -72,9 +105,15 @@ class Notifier:
         results = {}
 
         # Telegram通知
-        results['telegram'] = self.send_telegram(content, title)
+        if self.config.telegram_bot_token and self.config.telegram_chat_id:
+            results['telegram'] = self.send_telegram(content, title)
+        else:
+            results['telegram'] = False
 
         # 邮件通知
-        results['email'] = self.send_email(title, content)
+        if all([self.config.email_smtp_server, self.config.email_username, self.config.email_password]):
+            results['email'] = self.send_email(title, content)
+        else:
+            results['email'] = False
 
         return results

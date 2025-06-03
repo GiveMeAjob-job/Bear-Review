@@ -1,5 +1,5 @@
-# requirements.txt - 优化版依赖
-openai>=0.28.0
+# requirements.txt - 修复版依赖
+openai==0.28.1  # 锁定旧版本以保持兼容性
 requests>=2.31.0
 python-dotenv>=1.0.0
 pytz>=2023.3
