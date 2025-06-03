@@ -1,23 +1,50 @@
-name: Weekly Review
+# .github/workflows/monthly.yml - 优化版月报
+name: Monthly Review
+
 on:
   schedule:
-    - cron: '0 0 * * 1'
+    - cron: '0 1 1 * *'  # 每月1号 UTC 01:00，北京时间 09:00
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '试运行（不发送通知）'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
-  run:
+  monthly-review:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install deps
-        run: pip install -r requirements.txt
-      - name: Run weekly summary
+          cache: 'pip'
+          
+      - name: Install dependencies
+        run: |
+          pip install --no-cache-dir -r requirements.txt
+          
+      - name: Run monthly summary  
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
           DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
-        run: python src/main.py --period weekly
+          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER || 'openai' }}  # 月报用更好的模型
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
+          EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          TIMEZONE: ${{ secrets.TIMEZONE || 'Asia/Shanghai' }}
+        run: |
+          python -m src.main \
+            --period monthly \
+            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}

@@ -1,2 +1,9 @@
-openai
-requests
+# requirements.txt - 优化版依赖
+openai>=0.28.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+pytz>=2023.3
+
+# 可选依赖（用于测试）
+pytest>=7.4.0
+pytest-mock>=3.11.0

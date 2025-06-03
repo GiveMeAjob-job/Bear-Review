@@ -1,75 +1,109 @@
-import os
-import datetime
+# src/notion_client.py - 🔄 优化版
 import requests
+from typing import List, Dict, Optional
+from datetime import date, timedelta
+from .config import Config
+from .utils import retry_on_failure, setup_logger
 
-TOKEN = os.getenv("NOTION_TOKEN")
-HEADERS = {
-    "Authorization": f"Bearer {TOKEN}",
-    "Notion-Version": "2022-06-28",
-    "Content-Type": "application/json",
-}
+logger = setup_logger(__name__)
 
 
-def _query_tasks(db_id: str, start: datetime.date, end: datetime.date):
-    payload = {
-        "filter": {
-            "and": [
+class NotionClient:
+    def __init__(self, config: Config):
+        self.config = config
+        self.headers = {
+            "Authorization": f"Bearer {config.notion_token}",
+            "Notion-Version": "2022-06-28",
+            "Content-Type": "application/json",
+        }
+
+    @retry_on_failure(max_retries=3)
+    def _query_tasks(self, start_date: date, end_date: date,
+                     additional_filters: Optional[List[Dict]] = None) -> List[Dict]:
+        """查询任务的通用方法"""
+        filters = [
+            {
+                "property": "计划日期",
+                "date": {"on_or_after": start_date.isoformat()}
+            },
+            {
+                "property": "计划日期",
+                "date": {"on_or_before": end_date.isoformat()}
+            },
+            {
+                "property": "状态",
+                "select": {"equals": "Done"}
+            }
+        ]
+
+        if additional_filters:
+            filters.extend(additional_filters)
+
+        payload = {
+            "filter": {"and": filters},
+            "page_size": 100,  # 批量获取
+            "sorts": [
                 {
-                    "property": "\u8ba1\u5212\u65e5\u671f",
-                    "date": {
-                        "on_or_after": start.isoformat(),
-                    },
-                },
-                {
-                    "property": "\u8ba1\u5212\u65e5\u671f",
-                    "date": {
-                        "on_or_before": end.isoformat(),
-                    },
-                },
-                {
-                    "property": "\u72b6\u6001",
-                    "select": {"equals": "Done"},
-                },
+                    "property": "计划日期",
+                    "direction": "ascending"
+                }
             ]
         }
-    }
-    r = requests.post(
-        f"https://api.notion.com/v1/databases/{db_id}/query",
-        headers=HEADERS,
-        json=payload,
-    )
-    r.raise_for_status()
-    return r.json().get("results", [])
+
+        url = f"https://api.notion.com/v1/databases/{self.config.notion_db_id}/query"
+        response = requests.post(url, headers=self.headers, json=payload)
+        response.raise_for_status()
+
+        results = response.json().get("results", [])
+        logger.info(f"查询到 {len(results)} 个任务 ({start_date} 到 {end_date})")
+        return results
+
+    def query_period_tasks(self, period: str) -> List[Dict]:
+        """根据周期查询任务"""
+        from .utils import get_date_range
+        start_date, end_date = get_date_range(period, self.config.timezone)
+        return self._query_tasks(start_date, end_date)
+
+    @retry_on_failure(max_retries=3)
+    def create_review_page(self, title: str, content: str, parent_id: str) -> str:
+        """创建复盘页面"""
+        payload = {
+            "parent": {"page_id": parent_id},
+            "properties": {
+                "title": {
+                    "title": [{"text": {"content": title}}]
+                }
+            },
+            "children": [
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [{"text": {"content": content}}]
+                    }
+                }
+            ]
+        }
+
+        response = requests.post(
+            "https://api.notion.com/v1/pages",
+            headers=self.headers,
+            json=payload
+        )
+        response.raise_for_status()
+        return response.json()["id"]
 
 
-def query_today_tasks(db_id: str):
-    today = datetime.date.today()
-    return _query_tasks(db_id, today, today)
-
-
-def query_this_week_tasks(db_id: str):
-    today = datetime.date.today()
-    start = today - datetime.timedelta(days=today.weekday())
-    end = start + datetime.timedelta(days=6)
-    return _query_tasks(db_id, start, end)
-
-
-def query_this_month_tasks(db_id: str):
-    today = datetime.date.today()
-    start = today.replace(day=1)
-    if start.month == 12:
-        next_month = datetime.date(start.year + 1, 1, 1)
-    else:
-        next_month = datetime.date(start.year, start.month + 1, 1)
-    end = next_month - datetime.timedelta(days=1)
-    return _query_tasks(db_id, start, end)
-
-
-def calc_xp(page):
-    pri = (
-        page.get("properties", {})
-        .get("\u4f18\u5148\u7ea7", {})
-        .get("select", {})
-        .get("name")
-    )
-    return 10 if pri == "MIT" else 5
+def calc_xp(page: Dict) -> int:
+    """计算经验值"""
+    try:
+        priority = (
+            page.get("properties", {})
+            .get("优先级", {})
+            .get("select", {})
+            .get("name", "")
+        )
+        return 10 if priority == "MIT" else 5
+    except (KeyError, TypeError):
+        logger.warning(f"无法计算XP，页面数据异常: {page.get('id', 'unknown')}")
+        return 0
