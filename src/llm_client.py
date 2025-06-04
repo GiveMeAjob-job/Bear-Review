@@ -19,7 +19,7 @@ class LLMClient:
                 raise ValueError("DeepSeek API密钥未设置")
             openai.api_key = self.config.deepseek_key
             openai.api_base = "https://api.deepseek.com/v1"
-            self.model = "deepseek-chat"
+            self.model = "deepseek-reasoner"
         elif self.config.llm_provider == "openai":
             if not self.config.openai_key:
                 raise ValueError("OpenAI API密钥未设置")
