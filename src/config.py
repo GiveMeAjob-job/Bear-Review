@@ -14,6 +14,7 @@ class Config:
     deepseek_key: Optional[str] = None
     openai_key: Optional[str] = None
     llm_provider: str = "deepseek"  # deepseek, openai
+    llm_model: str = os.getenv("LLM_MODEL", "deepseek-reasoner")
 
     # 通知配置
     telegram_bot_token: Optional[str] = None
