@@ -4,6 +4,7 @@ from collections import Counter
 from typing import Dict, List, Tuple
 from .notion_client import calc_xp
 from .utils import setup_logger
+from datetime import timedelta
 
 logger = setup_logger(__name__)
 
@@ -13,54 +14,77 @@ class TaskSummarizer:
         self.templates_dir = templates_dir
 
     def aggregate_tasks(self, tasks: List[Dict]) -> Tuple[Dict, List[str]]:
-        """聚合任务统计信息"""
+        """聚合任务统计信息（含 MIT／偏差／娱乐时长 等）"""
         if not tasks:
-            return {"total": 0, "xp": 0, "cats": {}, "mit_count": 0}, []
+            empty = {"total": 0, "xp": 0, "cats": {}, "mit_count": 0,
+                     "mit_done": [], "mit_todo": [],
+                     "top_bias": [], "ent_minutes": 0}
+            return empty, []
 
-        xp_total = sum(calc_xp(t) for t in tasks)
+        xp_total = 0
         categories = Counter()
-        mit_count = 0
         titles = []
 
-        for task in tasks:
+        mit_done_titles = []
+        mit_todo_titles = []
+
+        bias_list = []  # [(标题, 偏差百分比), …]
+        ent_minutes = 0
+
+        for t in tasks:
+            p = t["properties"]
+
+            # ① XP
+            xp_total += calc_xp(t)
+
+            # ② 分类统计
+            cat = p["分类"]["select"]["name"] if p["分类"]["select"] else "未分类"
+            categories[cat] += 1
+
+            # ③ 任务标题
+            if p["任务名称"]["title"]:
+                title = p["任务名称"]["title"][0]["plain_text"]
+                titles.append(title)
+            else:
+                title = "（无标题）"
+
+            # ④ MIT 列表拆分
+            pri = p["优先级"]["select"]["name"] if p["优先级"]["select"] else ""
+            sta = p["状态"]["select"]["name"] if p["状态"]["select"] else ""
+            if pri == "MIT":
+                (mit_done_titles if sta == "Done" else mit_todo_titles).append(title)
+
+            # ⑤ 偏差百分比
             try:
-                # 分类统计
-                category = (
-                    task.get("properties", {})
-                    .get("分类", {})
-                    .get("select", {})
-                    .get("name", "未分类")
-                )
-                categories[category] += 1
+                bias_pct = p["偏差%"]["formula"]["string"]
+                # 去掉百分号转 float
+                if bias_pct not in ("—", ""):
+                    bias_list.append((title, abs(float(bias_pct.rstrip("%")))))
+            except Exception:
+                pass
 
-                # MIT计数
-                priority = (
-                    task.get("properties", {})
-                    .get("优先级", {})
-                    .get("select", {})
-                    .get("name", "")
-                )
-                if priority == "MIT":
-                    mit_count += 1
+            # ⑥ 娱乐时长（按分类或标签判断）
+            if cat in ("Entertainment", "Fun", "Life"):
+                try:
+                    ent_minutes += int(p["实际用时(min)"]["formula"]["number"])
+                except Exception:
+                    pass
 
-                # 任务标题
-                title_prop = task.get("properties", {}).get("任务名称", {})
-                if title_prop.get("title"):
-                    title = title_prop["title"][0]["plain_text"]
-                    titles.append(title)
-
-            except (KeyError, TypeError, IndexError) as e:
-                logger.warning(f"处理任务时出错: {e}, 任务ID: {task.get('id', 'unknown')}")
-                continue
+        # ⑦ 拿偏差 Top-3
+        top_3_bias = sorted(bias_list, key=lambda x: x[1], reverse=True)[:3]
 
         stats = {
             "total": len(tasks),
             "xp": xp_total,
             "cats": dict(categories),
-            "mit_count": mit_count
+            "mit_count": len(mit_done_titles),
+            "mit_done": mit_done_titles,
+            "mit_todo": mit_todo_titles,
+            "top_bias": top_3_bias,
+            "ent_minutes": ent_minutes,
         }
 
-        logger.info(f"任务聚合完成: 总数 {stats['total']}, XP {stats['xp']}, MIT {stats['mit_count']}")
+        logger.info(f"任务聚合完成: 总数 {stats['total']}, XP {stats['xp']}, MIT 完成 {stats['mit_count']}")
         return stats, titles
 
     def _load_template(self, period: str) -> str:
@@ -116,6 +140,7 @@ class TaskSummarizer:
             task_list = "无已完成任务"
 
         prompt = template.format(
+            focus_goal = self.config.focus_goal,
             total=stats["total"],
             xp=stats["xp"],
             categories=categories,

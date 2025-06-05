@@ -27,6 +27,8 @@ class Config:
     timezone: str = "America/Toronto"
     max_retries: int = 3
 
+    focus_goal: str = os.getenv("FOCUS_GOAL", "保持高效且有序的一天")
+
     @classmethod
     def from_env(cls) -> 'Config':
         # 获取 LLM_PROVIDER，如果没设置且有 DEEPSEEK_KEY 则默认用 deepseek

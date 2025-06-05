@@ -2,7 +2,7 @@ name: Daily Review
 
 on:
   schedule:
-    - cron: '30 23 * * *'          # UTC 时间
+    - cron: '0 4 * * *'          # UTC 时间
   workflow_dispatch:
     inputs:
       dry_run:

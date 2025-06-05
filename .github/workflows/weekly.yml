@@ -3,7 +3,7 @@ name: Weekly Review
 
 on:
   schedule:
-    - cron: '0 0 * * 1'  # 每周一 UTC 00:00，北京时间 08:00
+    - cron: '0 4 1 * *'  # 每周一 UTC 00:00，北京时间 08:00
   workflow_dispatch:
     inputs:
       dry_run:
