@@ -80,8 +80,6 @@ class LLMClient:
                 model=self.model,
                 messages=messages,
                 max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=0.9,
             )
             content = resp.choices[0].message.content.strip()
             logger.info(f"LLM 响应字数：{len(content)}")
