@@ -58,10 +58,10 @@ class LLMClient:
     # --------------------------------------------------------------------- #
     @retry_on_failure(max_retries=3)
     def ask_llm(
-        self,
-        prompt: str,
-        max_tokens: int = 800,
-        temperature: float = 0.7,
+            self,
+            prompt: str,
+            max_tokens: int = 800,
+            temperature: float = 0.7,
     ) -> str:
         """
         向 LLM 发送 prompt，返回文本
@@ -76,11 +76,21 @@ class LLMClient:
         ]
 
         try:
-            resp = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                max_tokens=max_tokens,
-            )
+            # ✅ 动态构建请求参数
+            params = {
+                "model": self.model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+            }
+
+            # 只有当模型不是 deepseek-reasoner 时，才添加 temperature 和 top_p
+            if self.model != "deepseek-reasoner":
+                params["temperature"] = temperature
+                params["top_p"] = 0.9
+
+            # 使用 **params 解包传递参数
+            resp = self.client.chat.completions.create(**params)
+
             content = resp.choices[0].message.content.strip()
             logger.info(f"LLM 响应字数：{len(content)}")
             return content
