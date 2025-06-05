@@ -23,7 +23,7 @@ class LLMClient:
                 api_key=self.cfg.deepseek_key,
                 base_url="https://api.deepseek.com",
             )
-            self.model = self.cfg.llm_model or "deepseek-reasoner"
+            self.model = self.cfg.llm_model or "deepseek-chat"
         elif self.cfg.llm_provider.lower() == "openai":
             if not self.cfg.openai_key:
                 raise ValueError("OpenAI API Key 未设置")
@@ -56,10 +56,6 @@ class LLMClient:
                 "messages": messages,
                 "max_tokens": max_tokens,
             }
-
-            # 核心逻辑：只有当模型不是 deepseek-reasoner 时，才添加不支持的参数
-            if self.model != "deepseek-reasoner":
-                params["temperature"] = temperature
 
             # 使用 **params 解包传递参数
             resp = self.client.chat.completions.create(**params)

@@ -72,4 +72,4 @@ def test_ask_llm_with_chat_model(base_config):
         assert 'top_p' in kwargs
         assert kwargs['temperature'] == 0.7  # Check the default value
         assert kwargs['top_p'] == 0.9
-        assert kwargs['model'] == 'deepseek-reasoner'
+        assert kwargs['model'] == 'deepseek-chat'
