@@ -5,14 +5,12 @@ from typing import Dict, List, Tuple
 from .notion_client import calc_xp
 from .utils import setup_logger
 from datetime import timedelta
-from .config import Config
 
 logger = setup_logger(__name__)
 
 
 class TaskSummarizer:
-    def __init__(self, cfg: Config, templates_dir: str = "templates"):
-        self.config = cfg
+    def __init__(self, templates_dir: str = "templates"):
         self.templates_dir = templates_dir
 
     def aggregate_tasks(self, tasks: List[Dict]) -> Tuple[Dict, List[str]]:
@@ -142,7 +140,6 @@ class TaskSummarizer:
             task_list = "无已完成任务"
 
         prompt = template.format(
-            focus_goal = self.config.focus_goal,
             total=stats["total"],
             xp=stats["xp"],
             categories=categories,
