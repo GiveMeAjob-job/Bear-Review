@@ -5,7 +5,7 @@ python -m src.main --period daily        # 正常执行
 python -m src.main --period daily --dry-run   # 只打印总结，不发通知
 """
 import argparse
-import sys
+import sys, logging
 from datetime import datetime
 
 from .config import Config
@@ -16,7 +16,7 @@ from .notifier import Notifier
 from .utils import setup_logger
 from dotenv import load_dotenv
 logger = setup_logger("task_master.main")
-
+load_dotenv()
 
 def main():
     """主函数"""
@@ -65,7 +65,7 @@ def main():
     try:
         # 初始化组件
         notion = NotionClient(cfg)
-        summarizer = TaskSummarizer()
+        summarizer = TaskSummarizer(cfg)
         llm = LLMClient(cfg)
         notifier = Notifier(cfg)
 
