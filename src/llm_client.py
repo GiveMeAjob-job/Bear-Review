@@ -60,7 +60,6 @@ class LLMClient:
             # 核心逻辑：只有当模型不是 deepseek-reasoner 时，才添加不支持的参数
             if self.model != "deepseek-reasoner":
                 params["temperature"] = temperature
-                params["top_p"] = 0.9
 
             # 使用 **params 解包传递参数
             resp = self.client.chat.completions.create(**params)
