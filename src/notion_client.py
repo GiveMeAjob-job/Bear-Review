@@ -101,9 +101,17 @@ def calc_xp(page: Dict) -> int:
             page.get("properties", {})
             .get("优先级", {})
             .get("select", {})
-            .get("name", "")
+            .get("name", "")  # 默认值是空字符串
         )
-        return 10 if priority == "MIT" else 5
+
+        # ✅ 修正逻辑：明确判断各种情况
+        if priority == "MIT":
+            return 10
+        elif priority:  # 如果 priority 不是空字符串 (例如 "次要")
+            return 5
+        else:  # 如果 priority 是空字符串，说明没有设置优先级
+            return 0
+
     except (KeyError, TypeError):
         logger.warning(f"无法计算XP，页面数据异常: {page.get('id', 'unknown')}")
         return 0
