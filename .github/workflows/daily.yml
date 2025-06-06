@@ -1,20 +1,21 @@
-# .github/workflows/daily.yml - 修复版
+# .github/workflows/daily.yml - 最终版：每日自动生成日报 + 三日报告
 
-name: Daily Review
+name: Daily & Trend Reports
 
 on:
   schedule:
-    - cron: '0 4 * * *'  # UTC 时间
+    # 每天在您选择的固定时间自动运行
+    - cron: '0 4 * * *'  # UTC 时间，可自行调整
   workflow_dispatch:
     inputs:
       report_type:
-        description: '报告类型'
+        description: '报告类型 (仅手动触发时有效)'
         type: choice
         default: 'yesterday'
         options:
-          - 'yesterday'      # 昨天的日报
-          - 'three-days'     # 三天趋势分析
-          - 'today'          # 今天的日报
+          - 'yesterday'
+          - 'three-days'
+          - 'today'
       dry_run:
         description: '试运行（不发送通知）'
         type: boolean
@@ -27,32 +28,28 @@ on:
 jobs:
   daily-review:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20 # 运行两个报告，可以适当延长超时
 
     steps:
-      # 1️⃣ 取代码
+      # 1️⃣ & 2️⃣ & 3️⃣: Checkout, Setup Python, Install dependencies (不变)
       - uses: actions/checkout@v4
-
-      # 2️⃣ Python + pip cache
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: pip
-
-      # 3️⃣ 安装依赖
       - run: pip install -r requirements.txt
 
-      # 4️⃣ （可选）打印关键 env，手动排错时有用
+      # 4️⃣: Debug env (不变)
       - name: Debug env
+        if: github.event.inputs.verbose == 'true'
         run: |
           echo "NOTION_DB_ID=$NOTION_DB_ID"
           echo "TOK_LEN=${#NOTION_TOKEN}"
-          echo "TELEGRAM_CHAT_ID is set: ${{ secrets.TELEGRAM_CHAT_ID != '' }}"
-          echo "TELEGRAM_CHAT_ID_2 is set: ${{ secrets.TELEGRAM_CHAT_ID_2 != '' }}"
 
-      # 5️⃣ 执行脚本 - 修复版本
-      - name: Run summary
+      # 5️⃣: 执行脚本 (核心修改)
+      - name: Run Reports
         env:
+          # --- 所有环境变量不变 ---
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
           DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
@@ -68,30 +65,38 @@ jobs:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           TIMEZONE: ${{ secrets.TIMEZONE }}
         run: |
-          # 设置报告类型，默认为 yesterday
-          REPORT_TYPE="${{ github.event.inputs.report_type }}"
-          if [ -z "$REPORT_TYPE" ]; then
-            REPORT_TYPE="yesterday"
+          # --- ✅ 核心修改逻辑 ---
+          # 判断当前工作流是由 'schedule' (定时) 还是 'workflow_dispatch' (手动) 触发的
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # --- 如果是定时自动触发 ---
+            echo "⏰ 定时任务触发，将生成日报和三日报告..."
+            
+            echo -e "\n--- (1/2) 生成昨天的日报 ---"
+            python -m src.main --period daily --yesterday --verbose
+            
+            echo -e "\n--- (2/2) 生成三日趋势分析 ---"
+            python -m src.main --period three-days --verbose
+
+          else
+            # --- 如果是手动触发 ---
+            echo "👨‍💻 手动触发，将根据输入生成指定报告..."
+            REPORT_TYPE="${{ github.event.inputs.report_type }}"
+            echo "📊 报告类型: $REPORT_TYPE"
+            
+            # 使用您原来的 case 语句，逻辑完全不变
+            case "$REPORT_TYPE" in
+              "three-days")
+                python -m src.main --period three-days ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
+                ;;
+              "yesterday")
+                python -m src.main --period daily --yesterday ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
+                ;;
+              "today")
+                python -m src.main --period daily ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
+                ;;
+              *)
+                echo "❌ 未知的报告类型: $REPORT_TYPE"
+                exit 1
+                ;;
+            esac
           fi
-          
-          echo "📊 报告类型: $REPORT_TYPE"
-          
-          # 根据报告类型执行不同命令
-          case "$REPORT_TYPE" in
-            "three-days")
-              echo "🔄 运行三天趋势分析..."
-              python -m src.main --period three-days ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
-              ;;
-            "yesterday")
-              echo "📅 生成昨天的日报..."
-              python -m src.main --period daily --yesterday ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
-              ;;
-            "today")
-              echo "📋 生成今天的日报..."
-              python -m src.main --period daily ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
-              ;;
-            *)
-              echo "❌ 未知的报告类型: $REPORT_TYPE"
-              exit 1
-              ;;
-          esac
