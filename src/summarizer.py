@@ -11,8 +11,9 @@ logger = setup_logger(__name__)
 
 
 class TaskSummarizer:
-    def __init__(self, templates_dir: str = "templates"):
+    def __init__(self, templates_dir: str = "templates", tz_str: str = "America/Toronto"):
         self.templates_dir = templates_dir
+        self.tz = timezone(tz_str) # 存储时区信息
 
     def aggregate_tasks(self, tasks: List[Dict]) -> Tuple[Dict, List[Dict]]:
         """
@@ -146,7 +147,7 @@ MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333
 
 要求：语言积极正面，重点突出可执行性，避免空洞表述。不要使用markdown格式的加粗（**）、斜体（*）等标记。"""
 
-    def build_prompt(self, stats: Dict, titles: List[str], period: str) -> str:
+    def build_prompt(self, stats: Dict, task_details: List[Dict], period: str) -> str:
         """构建AI提示词"""
         template = self._load_template(period)
 
@@ -156,24 +157,37 @@ MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333
         else:
             categories = "无"
 
-        # 格式化任务列表
-        if titles:
-            task_list = "\n".join(f"- {title}" for title in titles[:20])  # 限制显示前20个
-            if len(titles) > 20:
-                task_list += f"\n... 还有 {len(titles) - 20} 个任务"
-        else:
-            task_list = "无已完成任务"
+        # ✅ 格式化包含详细信息的任务列表
+        task_list_lines = []
+        if task_details:
+            # 按分类分组
+            tasks_by_cat = {}
+            for task in task_details:
+                cat = task['category']
+                if cat not in tasks_by_cat:
+                    tasks_by_cat[cat] = []
+                tasks_by_cat[cat].append(task)
+
+            for cat, tasks_in_cat in tasks_by_cat.items():
+                task_list_lines.append(f"【{cat}】")
+                for task in tasks_in_cat:
+                    duration_str = f"{task['duration_min']:.0f}分钟"
+                    time_str = f"{task['start_time']}-{task['end_time']}"
+                    mit_str = " (MIT)" if task['is_mit'] else ""
+                    task_list_lines.append(f"- {task['title']}{mit_str} | {time_str} | 用时: {duration_str}")
+
+        task_list = "\n".join(task_list_lines) if task_list_lines else "无已完成任务"
 
         # 使用 format 替换所有占位符
         prompt = template.format(
-            total=stats["total"],
-            xp=stats["xp"],
+            total=stats.get("total", 0),
+            xp=stats.get("xp", 0),
             categories=categories,
-            mit_count=stats["mit_count"],
+            mit_count=stats.get("mit_count", 0),
             task_list=task_list,
-            start_time=stats["work_start"],
-            end_time=stats["work_end"],
-            focus_span=stats["focus_span"]
+            start_time=stats.get("work_start", "无"),
+            end_time=stats.get("work_end", "无"),
+            focus_span=stats.get("focus_span", "无")
         )
 
         logger.info(f"生成 {period} 提示词，长度: {len(prompt)} 字符")
