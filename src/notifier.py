@@ -85,8 +85,8 @@ class Notifier:
 
             payload = {
                 "chat_id": chat_id_int,
-                "text": full_message,
-                "parse_mode": None  # 使用纯文本，避免解析错误
+                "text": full_message
+                # 不设置 parse_mode，让Telegram使用默认的纯文本模式
             }
 
             response = requests.post(url, json=payload, timeout=10)
