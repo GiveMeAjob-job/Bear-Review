@@ -4,7 +4,7 @@ from collections import Counter
 from typing import Dict, List, Tuple
 from .notion_client import calc_xp
 from .utils import setup_logger
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = setup_logger(__name__)
 
