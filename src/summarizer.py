@@ -323,88 +323,65 @@ MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333
 4. 明日行动 - 3条具体建议，优先级明确。优化策略，明日执行蓝图。
 
 要求：语言积极正面，重点突出可执行性，避免空洞表述。不要使用markdown格式的加粗（**）、斜体（*）等标记。"""
+
     def build_three_day_prompt(self, three_days_stats: Dict[str, Dict]) -> str:
-        """构建准确的三天趋势分析提示词"""
+        """构建准确的三天趋势分析提示词（从模板加载）"""
+
+        # ✅ 第一步：加载外部模板文件
+        template = self._load_template("three_day")  # 使用已有的加载函数
+
+        # --- 后面的逻辑负责准备模板需要的数据 ---
 
         sorted_dates = sorted(three_days_stats.keys())
         weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-
-        days_summary = []
+        days_summary_lines = []
 
         # 三天总计
-        total_tasks = 0
-        total_work_hours = 0
-        total_sleep_hours = 0
-        total_entertainment_hours = 0
-        total_xp = 0
-        total_mit = 0
+        total_tasks, total_work_hours, total_sleep_hours, total_entertainment_hours, total_xp, total_mit = 0, 0, 0, 0, 0, 0
 
         for date_str in sorted_dates:
             stats = three_days_stats[date_str]
             date_obj = datetime.fromisoformat(date_str)
             weekday = weekdays[date_obj.weekday()]
 
-            # 累计
-            total_tasks += stats['total']
+            # 累计总数
+            total_tasks += stats.get('total', 0)
             total_work_hours += stats.get('actual_work_hours', 0)
             total_sleep_hours += stats.get('sleep_hours', 0)
             total_entertainment_hours += stats.get('entertainment_hours', 0)
-            total_xp += stats['xp']
-            total_mit += stats['mit_count']
+            total_xp += stats.get('xp', 0)
+            total_mit += stats.get('mit_count', 0)
 
-            # 单日摘要
+            # 格式化单日摘要
             day_summary = f"""
     【{date_str} {weekday}】
-    • 完成任务：{stats['total']}个
+    • 完成任务：{stats.get('total', 0)}个
     • 工作时段：{stats.get('work_start', '无')} - {stats.get('work_end', '无')}
     • 实际工作：{stats.get('actual_work_hours', 0)}小时（不含睡眠）
     • 睡眠时间：{stats.get('sleep_hours', 0)}小时
     • 娱乐时间：{stats.get('entertainment_hours', 0)}小时
-    • 获得XP：{stats['xp']}点
-    • MIT完成：{stats['mit_count']}个
+    • 获得XP：{stats.get('xp', 0)}点
+    • MIT完成：{stats.get('mit_count', 0)}个
     • 效率指标：{stats.get('xp_per_hour', 0)} XP/小时"""
-
-            days_summary.append(day_summary)
+            days_summary_lines.append(day_summary)
 
         # 计算平均值
-        avg_work = total_work_hours / 3
-        avg_sleep = total_sleep_hours / 3
-        avg_entertainment = total_entertainment_hours / 3
+        avg_work = total_work_hours / 3 if len(sorted_dates) > 0 else 0
+        avg_sleep = total_sleep_hours / 3 if len(sorted_dates) > 0 else 0
+        avg_entertainment = total_entertainment_hours / 3 if len(sorted_dates) > 0 else 0
 
-        prompt = f"""基于以下三天的真实数据，请进行分析（已排除睡眠时间）：
-
-    {''.join(days_summary)}
-
-    【三天汇总】
-    • 总任务数：{total_tasks}个
-    • 总工作时间：{total_work_hours:.1f}小时（日均{avg_work:.1f}小时）
-    • 总睡眠时间：{total_sleep_hours:.1f}小时（日均{avg_sleep:.1f}小时）
-    • 总娱乐时间：{total_entertainment_hours:.1f}小时（日均{avg_entertainment:.1f}小时）
-    • MIT完成：{total_mit}个
-
-    请用专业的中文分析（不使用markdown，600字内）：
-
-    1. 时间管理评估（150字）
-       - 每日实际工作时长是否合理（考虑已排除睡眠）
-       - 工作、睡眠、娱乐的时间分配是否平衡
-       - 作息规律性评价
-
-    2. 效率分析（150字）
-       - XP/小时的效率指标变化
-       - MIT任务完成情况
-       - 高效时段识别
-
-    3. 问题诊断（150字）
-       - 娱乐时间是否过多
-       - 睡眠是否充足
-       - 工作时段是否过于分散
-
-    4. 改进建议（150字）
-       - 基于实际数据的具体建议
-       - 时间分配优化方案
-       - 提升效率的具体措施
-
-    注意：所有时间统计已经排除睡眠，请基于实际工作时间分析。"""
+        # ✅ 第二步：使用 .format() 填充所有占位符
+        prompt = template.format(
+            days_summary=''.join(days_summary_lines),
+            total_tasks=total_tasks,
+            total_work_hours=total_work_hours,
+            avg_work=avg_work,
+            total_sleep_hours=total_sleep_hours,
+            avg_sleep=avg_sleep,
+            total_entertainment_hours=total_entertainment_hours,
+            avg_entertainment=avg_entertainment,
+            total_mit=total_mit
+        )
 
         return prompt
 
