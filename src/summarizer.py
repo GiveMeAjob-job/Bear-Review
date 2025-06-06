@@ -4,7 +4,7 @@ from collections import Counter
 from typing import Dict, List, Tuple
 from .notion_client import calc_xp
 from .utils import setup_logger
-from datetime import datetime, timedelta
+from datetime import datetime
 from pytz import timezone
 
 logger = setup_logger(__name__)
@@ -15,6 +15,9 @@ class TaskSummarizer:
         self.templates_dir = templates_dir
         self.tz = timezone(tz_str) # 存储时区信息
 
+    # --------------------------------------------------------------------------
+    # 方法一：为【日报】提供数据
+    # --------------------------------------------------------------------------
     def aggregate_tasks(self, tasks: List[Dict]) -> Tuple[Dict, List[Dict]]:
         """
         聚合任务统计信息。
@@ -108,45 +111,65 @@ class TaskSummarizer:
 
         return stats, task_details
 
-    def _load_template(self, period: str) -> str:
-        """加载提示词模板"""
-        template_file = os.path.join(self.templates_dir, f"{period}_prompt.txt")
+    # src/summarizer.py - 添加三天分析方法
+    # --------------------------------------------------------------------------
+    # 方法二：为【三日报告】提供数据
+    # --------------------------------------------------------------------------
+    def get_three_day_stats(self, tasks: List[Dict]) -> Dict:
+        """为三日报告生成统计数据，智能区分工作/睡眠/娱乐。"""
+        if not tasks:
+            return {"total": 0, "xp": 0, "mit_count": 0, "actual_work_hours": 0, "sleep_hours": 0,
+                    "entertainment_hours": 0}
 
-        if os.path.exists(template_file):
-            with open(template_file, 'r', encoding='utf-8') as f:
-                return f.read().strip()
+        xp_total = 0
+        work_periods = []
+        sleep_duration, entertainment_duration = 0, 0
 
-        # 默认模板
-        return self._get_default_template(period)
+        for t in tasks:
+            p = t["properties"]
+            title = p.get("任务名称", {}).get("title", [{}])[0].get("plain_text", "（无标题）")
+            cat = p.get("分类", {}).get("select", {}).get("name", "未分类")
 
-    def _get_default_template(self, period: str) -> str:
-        """获取默认模板"""
-        return """# Daily Review
-- 工作区间：{start_time} - {end_time}（共 {focus_span}）
-- 已完成任务 {total} 个，分类分布：{categories}，获得 XP {xp}，其中 MIT 任务 {mit_count} 个。
+            date_prop = p.get("计划日期", {}).get("date", {})
+            start_str, end_str = date_prop.get("start"), date_prop.get("end")
 
-## 任务清单
-{task_list}
+            if start_str and end_str:
+                try:
+                    start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                    end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                    duration_hours = (end_dt - start_dt).total_seconds() / 3600
 
-## 每日确保：
-健康：吃维生素C，维生素D，酸奶，鱼油，咖啡，补锌，午觉（补觉），喝咖啡，锻炼至少30分钟
-学习：学习最少4个小时
-MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333 Quiz 50题，你可以作为一个MIT事件，但是如果3个都是一样的D333 Quiz 50题，那就算作一个MIT事件
+                    is_sleep = any(k in title.lower() for k in ['睡觉', 'sleep', '补觉'])
+                    is_ent = cat in ["Entertainment", "Fun"] or any(k in title.lower() for k in ['刷', '视频', '看剧'])
 
-## 现阶段任务：（根据数字前后区分重要级别，越前面重要级别越高）
-1.WGU 的D333 Ethics in Technology 的 Final Exam，Gemini Quiz
-2.BQ四周练习计划
-3.CPA课程系统
-4.Youtube Shorts的短视频制作
+                    if is_sleep:
+                        sleep_duration += duration_hours
+                    else:
+                        work_periods.append((start_dt, end_dt))
+                        if is_ent:
+                            entertainment_duration += duration_hours
+                except Exception as e:
+                    logger.warning(f"三日报告统计解析时间失败: {e}")
 
-## 请用专业的中文输出（控制在550字内）：
-1. 列出今日完成的各个类别在今日的占比，和占比对应的占比大头的事情和时间。
-2. 今日完成的活动与总体任务相关性 - 告诉我哪些是相关的，一共花了多少时间，哪些是不相关的。
-3. 改进空间 - 3个最需要优化的方面，具体可操作
-4. 明日行动 - 3条具体建议，优先级明确。优化策略，明日执行蓝图。
+            xp_total += calc_xp(t)
 
-要求：语言积极正面，重点突出可执行性，避免空洞表述。不要使用markdown格式的加粗（**）、斜体（*）等标记。"""
+        merged_periods = self._merge_overlapping_periods(work_periods)
+        actual_work_hours = sum((end - start).total_seconds() / 3600 for start, end in merged_periods)
 
+        stats = {
+            "total": len(tasks), "xp": xp_total,
+            "mit_count": len(
+                [t for t in tasks if t["properties"].get("优先级", {}).get("select", {}).get("name") == "MIT"]),
+            "actual_work_hours": round(actual_work_hours, 1),
+            "sleep_hours": round(sleep_duration, 1),
+            "entertainment_hours": round(entertainment_duration, 1),
+            "xp_per_hour": round(xp_total / actual_work_hours, 1) if actual_work_hours > 0 else 0
+        }
+        return stats
+
+    # --------------------------------------------------------------------------
+    # Prompt 构建与辅助方法 (都应在类内部)
+    # --------------------------------------------------------------------------
     def build_prompt(self, stats: Dict, task_details: List[Dict], period: str) -> str:
         """构建AI提示词"""
         template = self._load_template(period)
@@ -193,8 +216,44 @@ MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333
         logger.info(f"生成 {period} 提示词，长度: {len(prompt)} 字符")
         return prompt
 
-    # src/summarizer.py - 添加三天分析方法
+    def _load_template(self, period: str) -> str:
+        """加载提示词模板"""
+        template_file = os.path.join(self.templates_dir, f"{period}_prompt.txt")
 
+        if os.path.exists(template_file):
+            with open(template_file, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+
+        # 默认模板
+        return self._get_default_template(period)
+
+    def _get_default_template(self, period: str) -> str:
+        """获取默认模板"""
+        return """# Daily Review
+- 工作区间：{start_time} - {end_time}（共 {focus_span}）
+- 已完成任务 {total} 个，分类分布：{categories}，获得 XP {xp}，其中 MIT 任务 {mit_count} 个。
+
+## 任务清单
+{task_list}
+
+## 每日确保：
+健康：吃维生素C，维生素D，酸奶，鱼油，咖啡，补锌，午觉（补觉），喝咖啡，锻炼至少30分钟
+学习：学习最少4个小时
+MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333 Quiz 50题，你可以作为一个MIT事件，但是如果3个都是一样的D333 Quiz 50题，那就算作一个MIT事件
+
+## 现阶段任务：（根据数字前后区分重要级别，越前面重要级别越高）
+1.WGU 的D333 Ethics in Technology 的 Final Exam，Gemini Quiz
+2.BQ四周练习计划
+3.CPA课程系统
+4.Youtube Shorts的短视频制作
+
+## 请用专业的中文输出（控制在550字内）：
+1. 列出今日完成的各个类别在今日的占比，和占比对应的占比大头的事情和时间。
+2. 今日完成的活动与总体任务相关性 - 告诉我哪些是相关的，一共花了多少时间，哪些是不相关的。
+3. 改进空间 - 3个最需要优化的方面，具体可操作
+4. 明日行动 - 3条具体建议，优先级明确。优化策略，明日执行蓝图。
+
+要求：语言积极正面，重点突出可执行性，避免空洞表述。不要使用markdown格式的加粗（**）、斜体（*）等标记。"""
     def build_three_day_prompt(self, three_days_stats: Dict[str, Dict]) -> str:
         """构建准确的三天趋势分析提示词"""
 
@@ -280,132 +339,34 @@ MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333
 
         return prompt
 
+    def _merge_overlapping_periods(self, periods: List[Tuple[datetime, datetime]]) -> List[Tuple[datetime, datetime]]:
+        """合并重叠的时间段"""
+        if not periods:
+            return []
 
-def aggregate_tasks(self, tasks: List[Dict]) -> Tuple[Dict, List[str]]:
-    """聚合任务统计信息（修复并简化时间计算）"""
-    if not tasks:
-        # ... (空任务处理不变)
-        empty = {
+        # 按开始时间排序
+        sorted_periods = sorted(periods, key=lambda x: x[0])
+        merged = [sorted_periods[0]]
+
+        for current_start, current_end in sorted_periods[1:]:
+            last_start, last_end = merged[-1]
+
+            # 如果当前时段与上一个时段重叠或相邻
+            if current_start <= last_end:
+                # 合并时段
+                merged[-1] = (last_start, max(last_end, current_end))
+            else:
+                # 添加新时段
+                merged.append((current_start, current_end))
+
+        return merged
+
+    def _empty_stats(self) -> Dict:
+        """返回空统计"""
+        return {
             "total": 0, "xp": 0, "cats": {}, "mit_count": 0,
-            "work_start": "无", "work_end": "无", "work_hours": 0,
-            "focus_span": "无", "time_distribution": {}
+            "mit_done": [], "work_start": "无", "work_end": "无",
+            "actual_work_hours": 0, "productive_hours": 0,
+            "sleep_hours": 0, "entertainment_hours": 0,
+            "tasks_per_hour": 0, "xp_per_hour": 0
         }
-        return empty, []
-
-    xp_total = 0
-    categories = Counter()
-    titles = []
-    mit_done_titles = []
-
-    # --- 时间计算变量 ---
-    all_start_times = []
-    all_end_times = []
-    total_duration_minutes = 0
-    hour_distribution = Counter()
-
-    for t in tasks:
-        p = t["properties"]
-
-        # --- 时间信息处理 ---
-        if "计划日期" in p and p["计划日期"].get("date"):
-            plan = p["计划日期"]["date"]
-            start_iso = plan.get("start")
-            end_iso = plan.get("end", start_iso)
-
-            if start_iso:
-                try:
-                    start_dt = datetime.fromisoformat(start_iso.replace('Z', '+00:00'))
-                    end_dt = datetime.fromisoformat(end_iso.replace('Z', '+00:00')) if end_iso else start_dt
-
-                    all_start_times.append(start_dt)
-                    all_end_times.append(end_dt)
-
-                    duration = (end_dt - start_dt).total_seconds()
-                    total_duration_minutes += duration / 60
-
-                    hour_distribution[start_dt.astimezone(timezone('UTC')).hour] += 1
-
-                except Exception as e:
-                    logger.warning(f"时间解析错误: {e}")
-
-        # --- 其他统计 (XP, 分类, 标题等) ---
-        xp_total += calc_xp(t)
-        cat = p.get("分类", {}).get("select", {}).get("name", "未分类")
-        categories[cat] += 1
-        title = p.get("任务名称", {}).get("title", [{}])[0].get("plain_text", "（无标题）")
-        titles.append(title)
-        if p.get("优先级", {}).get("select", {}).get("name", "") == "MIT":
-            mit_done_titles.append(title)
-
-    # --- 聚合时间计算结果 ---
-    work_start_str = "无"
-    work_end_str = "无"
-    focus_span_str = "无"
-
-    if all_start_times and all_end_times:
-        # 找到最早的开始和最晚的结束
-        earliest_start = min(all_start_times)
-        latest_end = max(all_end_times)
-
-        # 格式化开始和结束时间
-        # 注意：这里可以根据需要转换为本地时区，但为保持简单，先用UTC时间
-        tz = timezone("America/Toronto")  # 建议从config传入
-        work_start_str = earliest_start.astimezone(tz).strftime("%H:%M")
-        work_end_str = latest_end.astimezone(tz).strftime("%H:%M")
-
-        # 计算总时间跨度
-        focus_span_seconds = (latest_end - earliest_start).total_seconds()
-        span_hours = focus_span_seconds / 3600
-        focus_span_str = f"{span_hours:.1f} 小时"
-
-    # --- 准备最终的统计字典 ---
-    stats = {
-        "total": len(tasks),
-        "xp": xp_total,
-        "cats": dict(categories),
-        "mit_count": len(mit_done_titles),
-        "mit_done": mit_done_titles,
-        "work_start": work_start_str,
-        "work_end": work_end_str,
-        "work_hours": round(total_duration_minutes / 60, 1),  # 这是所有任务时长的累加，更准确
-        "focus_span": focus_span_str,  # 这是从最早开始到最晚结束的总跨度
-        "time_distribution": dict(hour_distribution),
-    }
-
-    logger.info(f"任务聚合完成: 总数 {stats['total']}, 工作时段 {stats['work_start']}-{stats['work_end']}")
-    logger.info(f"总时长: {stats['work_hours']}小时, 总跨度: {stats['focus_span']}")
-    return stats, titles
-
-
-def _merge_overlapping_periods(self, periods: List[Tuple[datetime, datetime]]) -> List[Tuple[datetime, datetime]]:
-    """合并重叠的时间段"""
-    if not periods:
-        return []
-
-    # 按开始时间排序
-    sorted_periods = sorted(periods, key=lambda x: x[0])
-    merged = [sorted_periods[0]]
-
-    for current_start, current_end in sorted_periods[1:]:
-        last_start, last_end = merged[-1]
-
-        # 如果当前时段与上一个时段重叠或相邻
-        if current_start <= last_end:
-            # 合并时段
-            merged[-1] = (last_start, max(last_end, current_end))
-        else:
-            # 添加新时段
-            merged.append((current_start, current_end))
-
-    return merged
-
-
-def _empty_stats(self) -> Dict:
-    """返回空统计"""
-    return {
-        "total": 0, "xp": 0, "cats": {}, "mit_count": 0,
-        "mit_done": [], "work_start": "无", "work_end": "无",
-        "actual_work_hours": 0, "productive_hours": 0,
-        "sleep_hours": 0, "entertainment_hours": 0,
-        "tasks_per_hour": 0, "xp_per_hour": 0
-    }

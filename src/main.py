@@ -68,28 +68,21 @@ def handle_three_days_report(notion: NotionClient, summarizer: TaskSummarizer,
     """处理三天趋势分析"""
     logger.info("🔄 开始三天趋势分析...")
 
-    # 获取三天的数据
-    three_days_data = {}
-    three_days_stats = {}
-
+    # ... (获取三天数据的逻辑不变) ...
     tz = pytz.timezone(notion.config.timezone)
     today = datetime.now(tz).date()
+    three_days_stats = {}
 
-    for days_ago in [1, 2, 3]:  # 昨天、前天、大前天
+    for days_ago in [1, 2, 3]:
         target_date = today - timedelta(days=days_ago)
         tasks = notion._query_tasks(target_date, target_date)
-
         logger.info(f"📅 {target_date}: 找到 {len(tasks)} 个任务")
 
+        # ✅ 调用智能统计函数，而不是基础版
         if tasks:
-            stats, _ = summarizer.aggregate_tasks(tasks)
+            stats, _ = summarizer.aggregate_tasks_smart(tasks)
         else:
-            # 空数据时的默认值
-            stats = {
-                "total": 0, "xp": 0, "cats": {}, "mit_count": 0,
-                "mit_done": [], "mit_todo": [], "top_bias": [], "ent_minutes": 0,
-                "start_time": "无", "end_time": "无", "focus_span": "无"
-            }
+            stats = summarizer._empty_stats()
 
         three_days_stats[target_date.isoformat()] = stats
 
@@ -177,7 +170,7 @@ def main():
     try:
         # 初始化组件
         notion = NotionClient(cfg)
-        summarizer = TaskSummarizer()
+        summarizer = TaskSummarizer(cfg)
         llm = LLMClient(cfg)
         notifier = Notifier(cfg)
 
