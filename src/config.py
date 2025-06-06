@@ -1,4 +1,4 @@
-# src/config.py - 配置管理（支持多个Telegram账号）
+# src/config.py - 配置管理（支持两个不同的Bot）
 import os
 from dataclasses import dataclass
 from typing import Optional
@@ -16,10 +16,12 @@ class Config:
     llm_provider: str = "deepseek"  # deepseek, openai
     llm_model: str = os.getenv("LLM_MODEL", "deepseek-chat")
 
-    # 通知配置
-    telegram_bot_token: Optional[str] = None
-    telegram_chat_id: Optional[str] = None
-    telegram_chat_id_2: Optional[str] = None  # 第二个Telegram账号
+    # 通知配置 - 支持两个不同的Bot
+    telegram_bot_token: Optional[str] = None  # 主Bot token
+    telegram_chat_id: Optional[str] = None  # 主账号 chat id
+    telegram_bot_token_2: Optional[str] = None  # 副Bot token
+    telegram_chat_id_2: Optional[str] = None  # 副账号 chat id
+
     email_smtp_server: Optional[str] = None
     email_username: Optional[str] = None
     email_password: Optional[str] = None
@@ -50,7 +52,8 @@ class Config:
             llm_provider=llm_provider,
             telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN"),
             telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID"),
-            telegram_chat_id_2=os.getenv("TELEGRAM_CHAT_ID_2"),  # 第二个账号
+            telegram_bot_token_2=os.getenv("TELEGRAM_BOT_TOKEN_2"),  # 第二个Bot的token
+            telegram_chat_id_2=os.getenv("TELEGRAM_CHAT_ID_2"),
             email_smtp_server=os.getenv("EMAIL_SMTP_SERVER"),
             email_username=os.getenv("EMAIL_USERNAME"),
             email_password=os.getenv("EMAIL_PASSWORD"),

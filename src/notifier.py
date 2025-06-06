@@ -1,10 +1,10 @@
-# src/notifier.py - 修复Markdown和支持多个Telegram账号
+# src/notifier.py - 支持两个不同的Bot
 import smtplib
 import requests
 import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from .config import Config
 from .utils import retry_on_failure, setup_logger
 
@@ -50,13 +50,12 @@ class Notifier:
         return text.strip()
 
     @retry_on_failure(max_retries=2)
-    def send_telegram(self, message: str, title: str = "", chat_id: Optional[str] = None) -> bool:
-        """发送Telegram通知到指定chat_id"""
-        bot_token = self.config.telegram_bot_token
-        target_chat_id = chat_id or self.config.telegram_chat_id
+    def send_telegram_with_token(self, message: str, title: str = "",
+                                 bot_token: str = None, chat_id: str = None) -> bool:
+        """使用指定的bot token发送消息到指定chat_id"""
 
-        if not (bot_token and target_chat_id):
-            logger.warning(f"Telegram配置不完整，跳过推送到 {target_chat_id}")
+        if not (bot_token and chat_id):
+            logger.warning(f"Telegram配置不完整，跳过推送")
             return False
 
         try:
@@ -78,21 +77,20 @@ class Notifier:
 
             # 确保 chat_id 是整数
             try:
-                chat_id_int = int(target_chat_id)
+                chat_id_int = int(chat_id)
             except (ValueError, TypeError):
-                logger.error(f"无效的 Telegram Chat ID: {target_chat_id}")
+                logger.error(f"无效的 Telegram Chat ID: {chat_id}")
                 return False
 
             payload = {
                 "chat_id": chat_id_int,
                 "text": full_message
-                # 不设置 parse_mode，让Telegram使用默认的纯文本模式
             }
 
             response = requests.post(url, json=payload, timeout=10)
 
             if response.status_code == 200:
-                logger.info(f"Telegram通知发送成功到 {target_chat_id}")
+                logger.info(f"Telegram通知发送成功到 {chat_id}")
                 return True
             else:
                 logger.error(f"Telegram API 错误 {response.status_code}: {response.text}")
@@ -102,24 +100,43 @@ class Notifier:
             logger.error(f"Telegram通知发送失败: {e}")
             return False
 
-    def send_telegram_multiple(self, message: str, title: str = "", chat_ids: List[str] = None) -> Dict[str, bool]:
-        """发送到多个Telegram账号"""
+    def notify_all(self, title: str, content: str) -> Dict[str, bool]:
+        """发送所有可用的通知"""
         results = {}
 
-        # 如果没有提供chat_ids列表，使用默认的
-        if not chat_ids:
-            # 尝试从环境变量获取多个chat_id
-            primary_chat_id = self.config.telegram_chat_id
-            secondary_chat_id = self.config.telegram_chat_id_2  # 需要在config中添加
+        # 发送到主账号（使用主Bot）
+        if self.config.telegram_bot_token and self.config.telegram_chat_id:
+            logger.info(f"发送到主账号 (Bot 1): ...{self.config.telegram_chat_id[-4:]}")
+            success = self.send_telegram_with_token(
+                content, title,
+                self.config.telegram_bot_token,
+                self.config.telegram_chat_id
+            )
+            results[f'telegram_{self.config.telegram_chat_id}'] = success
 
-            chat_ids = [primary_chat_id]
-            if secondary_chat_id:
-                chat_ids.append(secondary_chat_id)
+        # 发送到副账号（使用副Bot或主Bot）
+        if self.config.telegram_chat_id_2:
+            # 如果有专用的第二个Bot token，使用它；否则使用主Bot token
+            bot_token_2 = self.config.telegram_bot_token_2 or self.config.telegram_bot_token
 
-        # 发送到每个chat_id
-        for chat_id in chat_ids:
-            if chat_id:
-                results[chat_id] = self.send_telegram(message, title, chat_id)
+            if bot_token_2:
+                logger.info(
+                    f"发送到副账号 (Bot {'2' if self.config.telegram_bot_token_2 else '1'}): ...{self.config.telegram_chat_id_2[-4:]}")
+                success = self.send_telegram_with_token(
+                    content, title,
+                    bot_token_2,
+                    self.config.telegram_chat_id_2
+                )
+                results[f'telegram_{self.config.telegram_chat_id_2}'] = success
+            else:
+                logger.warning("副账号配置不完整，跳过发送")
+                results[f'telegram_{self.config.telegram_chat_id_2}'] = False
+
+        # 邮件通知
+        if all([self.config.email_smtp_server, self.config.email_username, self.config.email_password]):
+            results['email'] = self.send_email(title, content)
+        else:
+            results['email'] = False
 
         return results
 
@@ -152,43 +169,3 @@ class Notifier:
         except Exception as e:
             logger.error(f"邮件发送失败: {e}")
             return False
-
-    def notify_all(self, title: str, content: str) -> Dict[str, bool]:
-        """发送所有可用的通知"""
-        results = {}
-
-        # Telegram通知 - 发送到多个账号
-        if self.config.telegram_bot_token:
-            # 获取所有chat_ids
-            chat_ids = []
-
-            # 主账号
-            if self.config.telegram_chat_id:
-                chat_ids.append(self.config.telegram_chat_id)
-                logger.info(f"添加主Telegram账号: ...{self.config.telegram_chat_id[-4:]}")
-
-            # 副账号（如果存在）
-            if hasattr(self.config, 'telegram_chat_id_2') and self.config.telegram_chat_id_2:
-                chat_ids.append(self.config.telegram_chat_id_2)
-                logger.info(f"添加副Telegram账号: ...{self.config.telegram_chat_id_2[-4:]}")
-            else:
-                logger.info("未配置副Telegram账号 (TELEGRAM_CHAT_ID_2)")
-
-            logger.info(f"准备发送到 {len(chat_ids)} 个Telegram账号")
-
-            # 发送到所有账号
-            telegram_results = self.send_telegram_multiple(content, title, chat_ids)
-
-            # 合并结果
-            for chat_id, success in telegram_results.items():
-                results[f'telegram_{chat_id}'] = success
-        else:
-            results['telegram'] = False
-
-        # 邮件通知
-        if all([self.config.email_smtp_server, self.config.email_username, self.config.email_password]):
-            results['email'] = self.send_email(title, content)
-        else:
-            results['email'] = False
-
-        return results

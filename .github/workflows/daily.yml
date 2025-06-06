@@ -49,6 +49,7 @@ jobs:
           OPENAI_KEY:         ${{ secrets.OPENAI_KEY }}
           LLM_PROVIDER:       ${{ secrets.LLM_PROVIDER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_TOKEN_2: ${{ secrets.TELEGRAM_BOT_TOKEN_2 }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_CHAT_ID_2: ${{ secrets.TELEGRAM_CHAT_ID_2 }}  # 添加第二个账号
           EMAIL_SMTP_SERVER:  ${{ secrets.EMAIL_SMTP_SERVER }}
