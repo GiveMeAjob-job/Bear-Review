@@ -59,4 +59,4 @@ jobs:
           python -m src.main \
             --period daily \
             ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
-            ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}}}
+            ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
