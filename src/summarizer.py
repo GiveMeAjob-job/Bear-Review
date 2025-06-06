@@ -4,7 +4,7 @@ from collections import Counter
 from typing import Dict, List, Tuple
 from .notion_client import calc_xp
 from .utils import setup_logger
-from datetime import timedelta
+from datetime import datetime
 
 logger = setup_logger(__name__)
 
@@ -128,11 +128,10 @@ class TaskSummarizer:
         return f"""# {period.title()} Review
 # Daily Review
 - 工作区间：{{start_time}} - {{end_time}}（共 {{focus_span}}）
-- 已完成任务 {total} 个，分类分布：{categories}，获得 XP {xp}，其中 MIT 任务 {mit_count} 个。
+- 已完成任务 {{total}} 个，分类分布：{{categories}}，获得 XP {{xp}}，其中 MIT 任务 {{mit_count}} 个。
 
 
-## 任务清单
-{task_list}
+## 任务清单 {{task_list}}
 
 每日确保：
 健康：吃维生素C，维生素D，酸奶，鱼油，咖啡，补锌，午觉（补觉），喝咖啡，锻炼至少30分钟
@@ -150,7 +149,8 @@ MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333
 2. **改进空间** - 1个最需要优化的方面，具体可操作
 3. **明日行动** - 3条具体建议，优先级明确
 
-要求：语言积极正面，重点突出可执行性，避免空洞表述。"""
+要求：语言积极正面，重点突出可执行性，避免空洞表述。
+"""
 
     def build_prompt(self, stats: Dict, titles: List[str], period: str) -> str:
         """构建AI提示词"""
@@ -175,7 +175,7 @@ MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333
             xp=stats["xp"],
             categories=categories,
             mit_count=stats["mit_count"],
-            task_list=task_list
+            task_list=task_list,
             start_time = stats["start_time"],
             end_time = stats["end_time"],
             focus_span = stats["focus_span"],
