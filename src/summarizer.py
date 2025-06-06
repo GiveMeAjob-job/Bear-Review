@@ -331,145 +331,99 @@ MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333
         return prompt
 
 
-def aggregate_tasks_smart(self, tasks: List[Dict]) -> Tuple[Dict, List[str]]:
-    """智能聚合任务统计（排除睡眠，处理重叠）"""
+def aggregate_tasks(self, tasks: List[Dict]) -> Tuple[Dict, List[str]]:
+    """聚合任务统计信息（修复并简化时间计算）"""
     if not tasks:
-        return self._empty_stats(), []
+        # ... (空任务处理不变)
+        empty = {
+            "total": 0, "xp": 0, "cats": {}, "mit_count": 0,
+            "work_start": "无", "work_end": "无", "work_hours": 0,
+            "focus_span": "无", "time_distribution": {}
+        }
+        return empty, []
 
-    # 基础统计变量
     xp_total = 0
     categories = Counter()
     titles = []
     mit_done_titles = []
 
-    # 时间相关变量
-    work_periods = []  # 存储实际工作时段
-    sleep_duration = 0
-    entertainment_duration = 0
-
-    # 按时间排序任务
-    time_sorted_tasks = []
+    # --- 时间计算变量 ---
+    all_start_times = []
+    all_end_times = []
+    total_duration_minutes = 0
+    hour_distribution = Counter()
 
     for t in tasks:
         p = t["properties"]
 
-        # 获取基本信息
-        title = "（无标题）"
-        if p.get("任务名称", {}).get("title"):
-            title = p["任务名称"]["title"][0].get("plain_text", "（无标题）")
-        titles.append(title)
+        # --- 时间信息处理 ---
+        if "计划日期" in p and p["计划日期"].get("date"):
+            plan = p["计划日期"]["date"]
+            start_iso = plan.get("start")
+            end_iso = plan.get("end", start_iso)
 
-        # 获取分类
+            if start_iso:
+                try:
+                    start_dt = datetime.fromisoformat(start_iso.replace('Z', '+00:00'))
+                    end_dt = datetime.fromisoformat(end_iso.replace('Z', '+00:00')) if end_iso else start_dt
+
+                    all_start_times.append(start_dt)
+                    all_end_times.append(end_dt)
+
+                    duration = (end_dt - start_dt).total_seconds()
+                    total_duration_minutes += duration / 60
+
+                    hour_distribution[start_dt.astimezone(timezone('UTC')).hour] += 1
+
+                except Exception as e:
+                    logger.warning(f"时间解析错误: {e}")
+
+        # --- 其他统计 (XP, 分类, 标题等) ---
+        xp_total += calc_xp(t)
         cat = p.get("分类", {}).get("select", {}).get("name", "未分类")
         categories[cat] += 1
-
-        # 获取时间信息
-        date_prop = p.get("计划日期", {}).get("date", {})
-        start_str = date_prop.get("start")
-        end_str = date_prop.get("end")
-
-        if start_str:
-            try:
-                start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
-                end_dt = start_dt  # 默认结束时间等于开始时间
-
-                if end_str and end_str != start_str:
-                    end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
-
-                duration_hours = (end_dt - start_dt).total_seconds() / 3600
-
-                # 判断是否是睡眠任务
-                is_sleep = any(keyword in title.lower() for keyword in ['睡觉', '睡眠', 'sleep', '补觉'])
-
-                # 判断是否是娱乐任务
-                is_entertainment = (cat in ["Entertainment", "Fun", "Life"] or
-                                    any(keyword in title for keyword in ['刷', '视频', '电视剧', '小红书']))
-
-                time_sorted_tasks.append({
-                    'title': title,
-                    'category': cat,
-                    'start': start_dt,
-                    'end': end_dt,
-                    'duration': duration_hours,
-                    'is_sleep': is_sleep,
-                    'is_entertainment': is_entertainment,
-                    'task': t
-                })
-
-                if is_sleep:
-                    sleep_duration += duration_hours
-                elif is_entertainment:
-                    entertainment_duration += duration_hours
-                else:
-                    # 只记录非睡眠的工作时段
-                    work_periods.append((start_dt, end_dt))
-
-            except Exception as e:
-                logger.warning(f"时间解析错误: {e}")
-
-        # XP 和 MIT 统计
-        xp_total += calc_xp(t)
-
-        pri = p.get("优先级", {}).get("select", {}).get("name", "")
-        if pri == "MIT":
+        title = p.get("任务名称", {}).get("title", [{}])[0].get("plain_text", "（无标题）")
+        titles.append(title)
+        if p.get("优先级", {}).get("select", {}).get("name", "") == "MIT":
             mit_done_titles.append(title)
 
-    # 计算实际工作时间（排除睡眠）
-    actual_work_hours = 0
-    productive_hours = 0
+    # --- 聚合时间计算结果 ---
+    work_start_str = "无"
+    work_end_str = "无"
+    focus_span_str = "无"
 
-    if work_periods:
-        # 合并重叠的时间段
-        merged_periods = self._merge_overlapping_periods(work_periods)
+    if all_start_times and all_end_times:
+        # 找到最早的开始和最晚的结束
+        earliest_start = min(all_start_times)
+        latest_end = max(all_end_times)
 
-        # 计算总工作时间
-        for start, end in merged_periods:
-            actual_work_hours += (end - start).total_seconds() / 3600
+        # 格式化开始和结束时间
+        # 注意：这里可以根据需要转换为本地时区，但为保持简单，先用UTC时间
+        tz = timezone("America/Toronto")  # 建议从config传入
+        work_start_str = earliest_start.astimezone(tz).strftime("%H:%M")
+        work_end_str = latest_end.astimezone(tz).strftime("%H:%M")
 
-        # 计算有效工作时间（排除娱乐）
-        productive_hours = actual_work_hours - (entertainment_duration / 60)
+        # 计算总时间跨度
+        focus_span_seconds = (latest_end - earliest_start).total_seconds()
+        span_hours = focus_span_seconds / 3600
+        focus_span_str = f"{span_hours:.1f} 小时"
 
-    # 找出最早和最晚的工作时间（不包括睡眠）
-    work_start = "无"
-    work_end = "无"
-
-    non_sleep_tasks = [t for t in time_sorted_tasks if not t['is_sleep']]
-    if non_sleep_tasks:
-        earliest = min(t['start'] for t in non_sleep_tasks)
-        latest = max(t['end'] for t in non_sleep_tasks)
-
-        # 转换到本地时区
-        tz = pytz.timezone(self.config.timezone) if hasattr(self, 'config') else pytz.UTC
-        work_start = earliest.astimezone(tz).strftime("%H:%M")
-        work_end = latest.astimezone(tz).strftime("%H:%M")
-
-    # 统计结果
+    # --- 准备最终的统计字典 ---
     stats = {
         "total": len(tasks),
         "xp": xp_total,
         "cats": dict(categories),
         "mit_count": len(mit_done_titles),
         "mit_done": mit_done_titles,
-
-        # 时间统计
-        "work_start": work_start,
-        "work_end": work_end,
-        "actual_work_hours": round(actual_work_hours, 1),
-        "productive_hours": round(productive_hours, 1),
-        "sleep_hours": round(sleep_duration, 1),
-        "entertainment_hours": round(entertainment_duration, 1),
-
-        # 效率指标
-        "tasks_per_hour": round(len(tasks) / actual_work_hours, 1) if actual_work_hours > 0 else 0,
-        "xp_per_hour": round(xp_total / actual_work_hours, 1) if actual_work_hours > 0 else 0,
+        "work_start": work_start_str,
+        "work_end": work_end_str,
+        "work_hours": round(total_duration_minutes / 60, 1),  # 这是所有任务时长的累加，更准确
+        "focus_span": focus_span_str,  # 这是从最早开始到最晚结束的总跨度
+        "time_distribution": dict(hour_distribution),
     }
 
-    logger.info(f"智能统计完成:")
-    logger.info(f"  总任务: {stats['total']}")
-    logger.info(f"  实际工作: {stats['actual_work_hours']}小时（排除睡眠）")
-    logger.info(f"  睡眠时间: {stats['sleep_hours']}小时")
-    logger.info(f"  娱乐时间: {stats['entertainment_hours']}小时")
-
+    logger.info(f"任务聚合完成: 总数 {stats['total']}, 工作时段 {stats['work_start']}-{stats['work_end']}")
+    logger.info(f"总时长: {stats['work_hours']}小时, 总跨度: {stats['focus_span']}")
     return stats, titles
 
 
