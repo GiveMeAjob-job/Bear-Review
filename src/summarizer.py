@@ -243,7 +243,7 @@ MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333
 
     # src/summarizer.py - 添加三天分析方法
 
-    def build_three_day_prompt_accurate(self, three_days_stats: Dict[str, Dict]) -> str:
+    def build_three_day_prompt(self, three_days_stats: Dict[str, Dict]) -> str:
         """构建准确的三天趋势分析提示词"""
 
         sorted_dates = sorted(three_days_stats.keys())
