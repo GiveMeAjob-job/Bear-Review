@@ -227,3 +227,91 @@ MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333
 
         logger.info(f"生成 {period} 提示词，长度: {len(prompt)} 字符")
         return prompt
+
+    # src/summarizer.py - 添加三天分析方法
+
+    def build_three_day_prompt(self, three_days_stats: Dict[str, Dict]) -> str:
+        """构建三天趋势分析的提示词"""
+
+        # 按日期排序（从早到晚）
+        sorted_dates = sorted(three_days_stats.keys())
+
+        days_summary = []
+        weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+
+        # 总计数据
+        total_tasks = 0
+        total_xp = 0
+        total_mit = 0
+        category_totals = {}
+
+        for date_str in sorted_dates:
+            stats = three_days_stats[date_str]
+            date_obj = datetime.fromisoformat(date_str)
+            weekday = weekdays[date_obj.weekday()]
+
+            # 累计统计
+            total_tasks += stats['total']
+            total_xp += stats['xp']
+            total_mit += stats['mit_count']
+
+            # 分类统计
+            for cat, count in stats['cats'].items():
+                category_totals[cat] = category_totals.get(cat, 0) + count
+
+            # 格式化单日摘要
+            cats_str = "、".join(f"{k}({v})" for k, v in stats['cats'].items()) if stats['cats'] else "无"
+
+            day_summary = f"""
+    {date_str} {weekday}
+    • 完成任务：{stats['total']}个
+    • 获得XP：{stats['xp']}点
+    • MIT任务：{stats['mit_count']}个
+    • 分类分布：{cats_str}
+    • 工作时段：{stats['start_time']} - {stats['end_time']}"""
+
+            days_summary.append(day_summary)
+
+        # 格式化分类总计
+        cat_total_str = "、".join(
+            f"{k}({v})" for k, v in sorted(category_totals.items(), key=lambda x: x[1], reverse=True))
+
+        prompt = f"""基于以下三天的任务完成数据，请进行深度分析和趋势识别：
+
+    【三天数据概览】
+    {''.join(days_summary)}
+
+    【三天汇总】
+    • 总任务数：{total_tasks}个（日均{total_tasks / 3:.1f}个）
+    • 总XP值：{total_xp}点（日均{total_xp / 3:.1f}点）
+    • MIT完成：{total_mit}个（日均{total_mit / 3:.1f}个）
+    • 分类总计：{cat_total_str}
+
+    请用专业的中文输出，不使用任何markdown格式（控制在600字内）：
+
+    1. 趋势分析（150字）
+       - 任务数量的变化趋势（增长/下降/波动）
+       - 工作强度的变化（通过XP和MIT判断）
+       - 作息时间的规律性
+
+    2. 行为模式识别（150字）
+       - 哪些任务类别是重点（根据数量和频率）
+       - MIT任务的完成规律
+       - 效率高峰期识别
+
+    3. 问题诊断（150字）
+       - 发现的效率瓶颈或问题
+       - 任务分配是否合理
+       - 可能的改进空间
+
+    4. 明日行动建议（150字）
+       - 基于三天趋势的具体建议
+       - 需要重点关注的任务类别
+       - 时间安排优化建议
+
+    要求：
+    - 分析要具体，引用实际数据
+    - 建议要可执行，避免泛泛而谈
+    - 语气积极正面，focus on improvements"""
+
+        return prompt

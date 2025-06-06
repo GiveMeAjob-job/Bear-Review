@@ -115,3 +115,36 @@ def calc_xp(page: Dict) -> int:
     except (KeyError, TypeError):
         logger.warning(f"无法计算XP，页面数据异常: {page.get('id', 'unknown')}")
         return 0
+
+
+def query_three_days_tasks(self) -> Dict[str, List[Dict]]:
+    """查询最近三天的任务，按天分组返回"""
+    from datetime import timedelta
+    import pytz
+
+    tz = pytz.timezone(self.config.timezone)
+    today = datetime.now(tz).date()
+
+    # 获取三天的数据
+    three_days_data = {}
+    for days_ago in [1, 2, 3]:  # 昨天、前天、大前天
+        target_date = today - timedelta(days=days_ago)
+        tasks = self._query_tasks(target_date, target_date)
+        three_days_data[target_date.isoformat()] = tasks
+
+    return three_days_data
+
+
+def get_yesterday_tasks(self) -> List[Dict]:
+    """获取昨天的任务（修复时区问题）"""
+    from datetime import timedelta
+    import pytz
+
+    tz = pytz.timezone(self.config.timezone)
+    now = datetime.now(tz)
+    yesterday = (now - timedelta(days=1)).date()
+
+    logger.info(f"🕐 当前时间: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    logger.info(f"📅 查询昨天的任务: {yesterday}")
+
+    return self._query_tasks(yesterday, yesterday)
