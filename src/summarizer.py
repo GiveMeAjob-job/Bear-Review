@@ -111,10 +111,79 @@ class TaskSummarizer:
 
         return stats, task_details
 
+
     # src/summarizer.py - 添加三天分析方法
     # --------------------------------------------------------------------------
     # 方法二：为【三日报告】提供数据
     # --------------------------------------------------------------------------
+    def aggregate_tasks_smart(self, tasks: List[Dict]) -> Tuple[Dict, List[Dict]]:
+        """智能聚合任务统计（排除睡眠，处理重叠）"""
+        if not tasks:
+            return self._empty_stats(), []
+
+        xp_total = 0
+        categories = Counter()
+
+        work_periods = []
+        sleep_duration = 0
+        entertainment_duration = 0
+
+        task_details = []
+
+        for t in tasks:
+            p = t["properties"]
+            title = p.get("任务名称", {}).get("title", [{}])[0].get("plain_text", "（无标题）")
+            cat = p.get("分类", {}).get("select", {}).get("name", "未分类")
+            date_prop = p.get("计划日期", {}).get("date", {})
+            start_str, end_str = date_prop.get("start"), date_prop.get("end")
+
+            if start_str:
+                try:
+                    start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                    end_dt = datetime.fromisoformat(
+                        end_str.replace('Z', '+00:00')) if end_str and end_str != start_str else start_dt
+                    duration_hours = (end_dt - start_dt).total_seconds() / 3600
+
+                    is_sleep = any(keyword in title.lower() for keyword in ['睡觉', '睡眠', 'sleep', '补觉'])
+                    is_entertainment = (cat in ["Entertainment", "Fun"] or any(
+                        keyword in title.lower() for keyword in ['刷', '视频', '电视剧', '小红书', '看剧']))
+
+                    task_details.append({"title": title, "start": start_dt, "end": end_dt})
+
+                    if is_sleep:
+                        sleep_duration += duration_hours
+                    else:
+                        work_periods.append((start_dt, end_dt))
+                        if is_entertainment:
+                            entertainment_duration += duration_hours
+
+                except Exception as e:
+                    logger.warning(f"智能统计时解析时间失败: {e}")
+
+            xp_total += calc_xp(t)
+            categories[cat] += 1
+
+        merged_periods = self._merge_overlapping_periods(work_periods)
+        actual_work_hours = sum((end - start).total_seconds() / 3600 for start, end in merged_periods)
+
+        work_start_str, work_end_str = "无", "无"
+        if work_periods:
+            earliest = min(start for start, end in work_periods)
+            latest = max(end for start, end in work_periods)
+            work_start_str = earliest.astimezone(self.tz).strftime("%H:%M")
+            work_end_str = latest.astimezone(self.tz).strftime("%H:%M")
+
+        stats = {
+            "total": len(tasks), "xp": xp_total, "cats": dict(categories),
+            "mit_count": len(
+                [t for t in tasks if t["properties"].get("优先级", {}).get("select", {}).get("name") == "MIT"]),
+            "work_start": work_start_str, "work_end": work_end_str,
+            "actual_work_hours": round(actual_work_hours, 1),
+            "sleep_hours": round(sleep_duration, 1),
+            "entertainment_hours": round(entertainment_duration, 1),
+            "xp_per_hour": round(xp_total / actual_work_hours, 1) if actual_work_hours > 0 else 0,
+        }
+        return stats, task_details
     def get_three_day_stats(self, tasks: List[Dict]) -> Dict:
         """为三日报告生成统计数据，智能区分工作/睡眠/娱乐。"""
         if not tasks:
