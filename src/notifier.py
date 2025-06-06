@@ -1,5 +1,5 @@
 # src/notifier.py - 通知推送（修复版）
-import smtplib
+import smtplib, math, re
 import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -8,6 +8,7 @@ from .config import Config
 from .utils import retry_on_failure, setup_logger
 
 logger = setup_logger(__name__)
+MD_SPECIAL = r'[_*[\]()~`>#+\-=|{}.!\\]'   # Telegram MarkdownV2 需要转义的符号
 
 
 class Notifier:
@@ -44,7 +45,7 @@ class Notifier:
             payload = {
                 "chat_id": chat_id,
                 "text": full_message,
-                "parse_mode": "Markdown"
+                "parse_mode": "MarkdownV2"
             }
 
             response = requests.post(url, json=payload, timeout=10)
