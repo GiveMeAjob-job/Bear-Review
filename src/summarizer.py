@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 from .notion_client import calc_xp
 from .utils import setup_logger
 from datetime import datetime, timedelta
+from pytz import timezone
 
 logger = setup_logger(__name__)
 
@@ -242,97 +243,263 @@ MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333
 
     # src/summarizer.py - 添加三天分析方法
 
-    def build_three_day_prompt(self, three_days_stats: Dict[str, Dict]) -> str:
-        """构建三天趋势分析的提示词（改进版）"""
+    def build_three_day_prompt_accurate(self, three_days_stats: Dict[str, Dict]) -> str:
+        """构建准确的三天趋势分析提示词"""
 
         sorted_dates = sorted(three_days_stats.keys())
         weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 
         days_summary = []
+
+        # 三天总计
         total_tasks = 0
+        total_work_hours = 0
+        total_sleep_hours = 0
+        total_entertainment_hours = 0
         total_xp = 0
         total_mit = 0
-        category_totals = {}
 
         for date_str in sorted_dates:
             stats = three_days_stats[date_str]
             date_obj = datetime.fromisoformat(date_str)
             weekday = weekdays[date_obj.weekday()]
 
-            # 累计统计
+            # 累计
             total_tasks += stats['total']
+            total_work_hours += stats.get('actual_work_hours', 0)
+            total_sleep_hours += stats.get('sleep_hours', 0)
+            total_entertainment_hours += stats.get('entertainment_hours', 0)
             total_xp += stats['xp']
             total_mit += stats['mit_count']
 
-            # 分类统计
-            for cat, count in stats['cats'].items():
-                category_totals[cat] = category_totals.get(cat, 0) + count
-
-            # 格式化单日摘要
-            cats_str = "、".join(f"{k}({v})" for k, v in stats['cats'].items()) if stats['cats'] else "无"
-
-            # 处理时间信息
-            work_info = f"{stats.get('work_start', '无')} - {stats.get('work_end', '无')}"
-            work_hours = stats.get('work_hours', 0)
-            peak_hours = stats.get('peak_hours', [])
-            peak_str = f"高峰时段: {','.join(map(str, peak_hours))}时" if peak_hours else "无明显高峰"
-
+            # 单日摘要
             day_summary = f"""
     【{date_str} {weekday}】
     • 完成任务：{stats['total']}个
+    • 工作时段：{stats.get('work_start', '无')} - {stats.get('work_end', '无')}
+    • 实际工作：{stats.get('actual_work_hours', 0)}小时（不含睡眠）
+    • 睡眠时间：{stats.get('sleep_hours', 0)}小时
+    • 娱乐时间：{stats.get('entertainment_hours', 0)}小时
     • 获得XP：{stats['xp']}点
-    • MIT任务：{stats['mit_count']}个
-    • 分类分布：{cats_str}
-    • 工作时段：{work_info}（约{work_hours}小时）
-    • {peak_str}"""
+    • MIT完成：{stats['mit_count']}个
+    • 效率指标：{stats.get('xp_per_hour', 0)} XP/小时"""
 
             days_summary.append(day_summary)
 
-        # 格式化分类总计
-        cat_total_str = "、".join(
-            f"{k}({v})" for k, v in sorted(category_totals.items(), key=lambda x: x[1], reverse=True))
+        # 计算平均值
+        avg_work = total_work_hours / 3
+        avg_sleep = total_sleep_hours / 3
+        avg_entertainment = total_entertainment_hours / 3
 
-        prompt = f"""基于以下三天的任务完成数据，请进行深度分析和趋势识别：
+        prompt = f"""基于以下三天的真实数据，请进行分析（已排除睡眠时间）：
 
     {''.join(days_summary)}
 
     【三天汇总】
-    • 总任务数：{total_tasks}个（日均{total_tasks / 3:.1f}个）
-    • 总XP值：{total_xp}点（日均{total_xp / 3:.1f}点）
-    • MIT完成：{total_mit}个（日均{total_mit / 3:.1f}个）
-    • 分类总计：{cat_total_str}
+    • 总任务数：{total_tasks}个
+    • 总工作时间：{total_work_hours:.1f}小时（日均{avg_work:.1f}小时）
+    • 总睡眠时间：{total_sleep_hours:.1f}小时（日均{avg_sleep:.1f}小时）
+    • 总娱乐时间：{total_entertainment_hours:.1f}小时（日均{avg_entertainment:.1f}小时）
+    • MIT完成：{total_mit}个
 
-    请用专业的中文输出，不使用任何markdown格式（控制在600字内）：
-    现阶段任务（根据数字前后区分重要级别，越前面重要级别越高）：
-    1.WGU 的D333 Ethics in Technology 的 Final Exam，Gemini Quiz
-    2.BQ四周练习计划
-    3.CPA课程系统
-    4.Youtube Shorts的短视频制作
-    5.跟随AI做量化系列
+    请用专业的中文分析（不使用markdown，600字内）：
 
-    1. 作息规律分析（200字）
-       - 每天的工作时段是否稳定
-       - 是否存在熬夜或通宵情况
-       - 工作时长的合理性评估
+    1. 时间管理评估（150字）
+       - 每日实际工作时长是否合理（考虑已排除睡眠）
+       - 工作、睡眠、娱乐的时间分配是否平衡
+       - 作息规律性评价
 
-    2. 任务模式识别（200字）
-       - 不同类别任务的分布和重心
-       - MIT任务的完成情况和规律
-       - 任务密度最高的时间段
+    2. 效率分析（150字）
+       - XP/小时的效率指标变化
+       - MIT任务完成情况
+       - 高效时段识别
 
-    3. 效率问题诊断（200字）
-       - 时间利用率（总工作时长vs任务数）
-       - MIT任务占比是否合理
-       - 可能存在的拖延或低效时段
+    3. 问题诊断（150字）
+       - 娱乐时间是否过多
+       - 睡眠是否充足
+       - 工作时段是否过于分散
 
-    4. 明日优化建议（200字）
-       - 基于三天数据的具体改进措施
-       - 作息调整建议
-       - MIT任务安排策略
+    4. 改进建议（150字）
+       - 基于实际数据的具体建议
+       - 时间分配优化方案
+       - 提升效率的具体措施
 
-    要求：
-    - 注意区分"任务开始时间"和"整天的工作时段"
-    - 如发现跨天任务（如深夜开始次日凌晨结束），要正确理解
-    - 建议要具体可执行，结合实际数据"""
+    注意：所有时间统计已经排除睡眠，请基于实际工作时间分析。"""
 
         return prompt
+
+
+def aggregate_tasks_smart(self, tasks: List[Dict]) -> Tuple[Dict, List[str]]:
+    """智能聚合任务统计（排除睡眠，处理重叠）"""
+    if not tasks:
+        return self._empty_stats(), []
+
+    # 基础统计变量
+    xp_total = 0
+    categories = Counter()
+    titles = []
+    mit_done_titles = []
+
+    # 时间相关变量
+    work_periods = []  # 存储实际工作时段
+    sleep_duration = 0
+    entertainment_duration = 0
+
+    # 按时间排序任务
+    time_sorted_tasks = []
+
+    for t in tasks:
+        p = t["properties"]
+
+        # 获取基本信息
+        title = "（无标题）"
+        if p.get("任务名称", {}).get("title"):
+            title = p["任务名称"]["title"][0].get("plain_text", "（无标题）")
+        titles.append(title)
+
+        # 获取分类
+        cat = p.get("分类", {}).get("select", {}).get("name", "未分类")
+        categories[cat] += 1
+
+        # 获取时间信息
+        date_prop = p.get("计划日期", {}).get("date", {})
+        start_str = date_prop.get("start")
+        end_str = date_prop.get("end")
+
+        if start_str:
+            try:
+                start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                end_dt = start_dt  # 默认结束时间等于开始时间
+
+                if end_str and end_str != start_str:
+                    end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+
+                duration_hours = (end_dt - start_dt).total_seconds() / 3600
+
+                # 判断是否是睡眠任务
+                is_sleep = any(keyword in title.lower() for keyword in ['睡觉', '睡眠', 'sleep', '补觉'])
+
+                # 判断是否是娱乐任务
+                is_entertainment = (cat in ["Entertainment", "Fun", "Life"] or
+                                    any(keyword in title for keyword in ['刷', '视频', '电视剧', '小红书']))
+
+                time_sorted_tasks.append({
+                    'title': title,
+                    'category': cat,
+                    'start': start_dt,
+                    'end': end_dt,
+                    'duration': duration_hours,
+                    'is_sleep': is_sleep,
+                    'is_entertainment': is_entertainment,
+                    'task': t
+                })
+
+                if is_sleep:
+                    sleep_duration += duration_hours
+                elif is_entertainment:
+                    entertainment_duration += duration_hours
+                else:
+                    # 只记录非睡眠的工作时段
+                    work_periods.append((start_dt, end_dt))
+
+            except Exception as e:
+                logger.warning(f"时间解析错误: {e}")
+
+        # XP 和 MIT 统计
+        xp_total += calc_xp(t)
+
+        pri = p.get("优先级", {}).get("select", {}).get("name", "")
+        if pri == "MIT":
+            mit_done_titles.append(title)
+
+    # 计算实际工作时间（排除睡眠）
+    actual_work_hours = 0
+    productive_hours = 0
+
+    if work_periods:
+        # 合并重叠的时间段
+        merged_periods = self._merge_overlapping_periods(work_periods)
+
+        # 计算总工作时间
+        for start, end in merged_periods:
+            actual_work_hours += (end - start).total_seconds() / 3600
+
+        # 计算有效工作时间（排除娱乐）
+        productive_hours = actual_work_hours - (entertainment_duration / 60)
+
+    # 找出最早和最晚的工作时间（不包括睡眠）
+    work_start = "无"
+    work_end = "无"
+
+    non_sleep_tasks = [t for t in time_sorted_tasks if not t['is_sleep']]
+    if non_sleep_tasks:
+        earliest = min(t['start'] for t in non_sleep_tasks)
+        latest = max(t['end'] for t in non_sleep_tasks)
+
+        # 转换到本地时区
+        tz = pytz.timezone(self.config.timezone) if hasattr(self, 'config') else pytz.UTC
+        work_start = earliest.astimezone(tz).strftime("%H:%M")
+        work_end = latest.astimezone(tz).strftime("%H:%M")
+
+    # 统计结果
+    stats = {
+        "total": len(tasks),
+        "xp": xp_total,
+        "cats": dict(categories),
+        "mit_count": len(mit_done_titles),
+        "mit_done": mit_done_titles,
+
+        # 时间统计
+        "work_start": work_start,
+        "work_end": work_end,
+        "actual_work_hours": round(actual_work_hours, 1),
+        "productive_hours": round(productive_hours, 1),
+        "sleep_hours": round(sleep_duration, 1),
+        "entertainment_hours": round(entertainment_duration, 1),
+
+        # 效率指标
+        "tasks_per_hour": round(len(tasks) / actual_work_hours, 1) if actual_work_hours > 0 else 0,
+        "xp_per_hour": round(xp_total / actual_work_hours, 1) if actual_work_hours > 0 else 0,
+    }
+
+    logger.info(f"智能统计完成:")
+    logger.info(f"  总任务: {stats['total']}")
+    logger.info(f"  实际工作: {stats['actual_work_hours']}小时（排除睡眠）")
+    logger.info(f"  睡眠时间: {stats['sleep_hours']}小时")
+    logger.info(f"  娱乐时间: {stats['entertainment_hours']}小时")
+
+    return stats, titles
+
+
+def _merge_overlapping_periods(self, periods: List[Tuple[datetime, datetime]]) -> List[Tuple[datetime, datetime]]:
+    """合并重叠的时间段"""
+    if not periods:
+        return []
+
+    # 按开始时间排序
+    sorted_periods = sorted(periods, key=lambda x: x[0])
+    merged = [sorted_periods[0]]
+
+    for current_start, current_end in sorted_periods[1:]:
+        last_start, last_end = merged[-1]
+
+        # 如果当前时段与上一个时段重叠或相邻
+        if current_start <= last_end:
+            # 合并时段
+            merged[-1] = (last_start, max(last_end, current_end))
+        else:
+            # 添加新时段
+            merged.append((current_start, current_end))
+
+    return merged
+
+
+def _empty_stats(self) -> Dict:
+    """返回空统计"""
+    return {
+        "total": 0, "xp": 0, "cats": {}, "mit_count": 0,
+        "mit_done": [], "work_start": "无", "work_end": "无",
+        "actual_work_hours": 0, "productive_hours": 0,
+        "sleep_hours": 0, "entertainment_hours": 0,
+        "tasks_per_hour": 0, "xp_per_hour": 0
+    }
