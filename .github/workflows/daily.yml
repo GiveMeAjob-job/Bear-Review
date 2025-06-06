@@ -37,6 +37,8 @@ jobs:
         run: |
           echo "NOTION_DB_ID=$NOTION_DB_ID"
           echo "TOK_LEN=${#NOTION_TOKEN}"
+          echo "TELEGRAM_CHAT_ID is set: ${{ secrets.TELEGRAM_CHAT_ID != '' }}"
+          echo "TELEGRAM_CHAT_ID_2 is set: ${{ secrets.TELEGRAM_CHAT_ID_2 != '' }}"
 
       # 5️⃣ 执行脚本
       - name: Run daily summary
@@ -48,6 +50,7 @@ jobs:
           LLM_PROVIDER:       ${{ secrets.LLM_PROVIDER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID_2: ${{ secrets.TELEGRAM_CHAT_ID_2 }}  # 添加第二个账号
           EMAIL_SMTP_SERVER:  ${{ secrets.EMAIL_SMTP_SERVER }}
           EMAIL_USERNAME:     ${{ secrets.EMAIL_USERNAME }}
           EMAIL_PASSWORD:     ${{ secrets.EMAIL_PASSWORD }}
@@ -56,4 +59,4 @@ jobs:
           python -m src.main \
             --period daily \
             ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
-            ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
+            ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}}}

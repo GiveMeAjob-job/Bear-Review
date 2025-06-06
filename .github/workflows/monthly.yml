@@ -40,6 +40,7 @@ jobs:
           LLM_PROVIDER: ${{ secrets.LLM_PROVIDER || 'openai' }}  # 月报用更好的模型
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID_2: ${{ secrets.TELEGRAM_CHAT_ID_2 }}  # 添加第二个账号
           EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
           EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
@@ -47,4 +48,4 @@ jobs:
         run: |
           python -m src.main \
             --period monthly \
-            ${{ github.event.inputs.dry_run == 't
+            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}

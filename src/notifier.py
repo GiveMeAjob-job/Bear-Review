@@ -1,4 +1,4 @@
-# src/notifier.py - 通知推送（修复版）
+# src/notifier.py - 修复Markdown和支持多个Telegram账号
 import smtplib
 import requests
 import re
@@ -165,10 +165,16 @@ class Notifier:
             # 主账号
             if self.config.telegram_chat_id:
                 chat_ids.append(self.config.telegram_chat_id)
+                logger.info(f"添加主Telegram账号: ...{self.config.telegram_chat_id[-4:]}")
 
             # 副账号（如果存在）
             if hasattr(self.config, 'telegram_chat_id_2') and self.config.telegram_chat_id_2:
                 chat_ids.append(self.config.telegram_chat_id_2)
+                logger.info(f"添加副Telegram账号: ...{self.config.telegram_chat_id_2[-4:]}")
+            else:
+                logger.info("未配置副Telegram账号 (TELEGRAM_CHAT_ID_2)")
+
+            logger.info(f"准备发送到 {len(chat_ids)} 个Telegram账号")
 
             # 发送到所有账号
             telegram_results = self.send_telegram_multiple(content, title, chat_ids)
