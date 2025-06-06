@@ -31,8 +31,22 @@ class TaskSummarizer:
         bias_list = []  # [(标题, 偏差百分比), …]
         ent_minutes = 0
 
+        earliest_start = None
+        latest_end     = None
+
         for t in tasks:
             p = t["properties"]
+
+            # 0 开始结束时间
+            plan = p["计划日期"]["date"]
+            start_iso = plan["start"]
+            end_iso   = plan.get("end") or start_iso   # 若无 end 用 start
+
+            start_dt = datetime.fromisoformat(start_iso.replace('Z', '+00:00'))
+            end_dt   = datetime.fromisoformat(end_iso.replace('Z', '+00:00'))
+
+            earliest_start = start_dt if earliest_start is None else min(earliest_start, start_dt)
+            latest_end     = end_dt   if latest_end   is None else max(latest_end,   end_dt)
 
             # ① XP
             xp_total += calc_xp(t)
@@ -74,6 +88,9 @@ class TaskSummarizer:
         top_3_bias = sorted(bias_list, key=lambda x: x[1], reverse=True)[:3]
 
         stats = {
+            "start_time": earliest_start.strftime("%H:%M") if earliest_start else "—",
+            "end_time": latest_end.strftime("%H:%M") if latest_end else "—",
+            "focus_span": str(latest_end - earliest_start) if earliest_start and latest_end else "—",
             "total": len(tasks),
             "xp": xp_total,
             "cats": dict(categories),
@@ -109,17 +126,31 @@ class TaskSummarizer:
         current, next_period, unit = period_map.get(period, ("今天", "明天", "日"))
 
         return f"""# {period.title()} Review
-已完成任务 {{total}} 个，分类分布：{{categories}}，获得 XP {{xp}}，其中 MIT 任务 {{mit_count}} 个。
+# Daily Review
+- 工作区间：{{start_time}} - {{end_time}}（共 {{focus_span}}）
+- 已完成任务 {total} 个，分类分布：{categories}，获得 XP {xp}，其中 MIT 任务 {mit_count} 个。
+
 
 ## 任务清单
-{{task_list}}
+{task_list}
 
-请用中文输出，要求简洁实用：
-1. **{current}亮点** - 总结 3 个主要成就
-2. **改进空间** - 指出 1 个最需要优化的方面  
-3. **{next_period}行动** - 提供 3 条具体可执行的建议
+每日确保：
+健康：吃维生素C，维生素D，酸奶，鱼油，咖啡，补锌，午觉（补觉），喝咖啡，锻炼至少30分钟
+学习：学习最少4个小时
+MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333 Quiz 50题，你可以作为一个MIT事件，但是如果3个都是一样的D333 Quiz 50题，那就算作一个MIT事件
 
-注意：回复字数控制在 300 字以内，重点突出可操作性。"""
+现阶段任务：（根据数字前后区分重要级别，越前面重要级别越高）
+1.WGU 的D333 Ethics in Technology 的 Final Exam，Gemini Quiz
+2.BQ四周练习计划
+3.CPA课程系统
+4.Youtube Shorts的短视频制作
+
+请用专业的中文输出（控制在550字内）：
+1. *今日完成的活动与总体任务相关性** - 告诉我哪些是相关的，一共花了多少时间，哪些是不相关的。
+2. **改进空间** - 1个最需要优化的方面，具体可操作
+3. **明日行动** - 3条具体建议，优先级明确
+
+要求：语言积极正面，重点突出可执行性，避免空洞表述。"""
 
     def build_prompt(self, stats: Dict, titles: List[str], period: str) -> str:
         """构建AI提示词"""
@@ -145,6 +176,9 @@ class TaskSummarizer:
             categories=categories,
             mit_count=stats["mit_count"],
             task_list=task_list
+            start_time = stats["start_time"],
+            end_time = stats["end_time"],
+            focus_span = stats["focus_span"],
         )
 
         logger.info(f"生成 {period} 提示词，长度: {len(prompt)} 字符")

@@ -6,6 +6,7 @@ from openai import OpenAI
 from .config import Config
 from .utils import retry_on_failure, setup_logger
 
+
 logger = setup_logger(__name__)
 
 class LLMClient:
