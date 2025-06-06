@@ -4,7 +4,7 @@ name: Daily Review
 
 on:
   schedule:
-    - cron: '0 4 * * *'  # UTC 4:00 = 北美东部 23:00/00:00
+    - cron: '0 4 * * *'  # UTC 时间
   workflow_dispatch:
     inputs:
       report_type:
@@ -30,24 +30,35 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      # 1️⃣ 取代码
       - uses: actions/checkout@v4
 
+      # 2️⃣ Python + pip cache
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: pip
 
+      # 3️⃣ 安装依赖
       - run: pip install -r requirements.txt
 
+      # 4️⃣ （可选）打印关键 env，手动排错时有用
+      - name: Debug env
+        run: |
+          echo "NOTION_DB_ID=$NOTION_DB_ID"
+          echo "TOK_LEN=${#NOTION_TOKEN}"
+          echo "TELEGRAM_CHAT_ID is set: ${{ secrets.TELEGRAM_CHAT_ID != '' }}"
+          echo "TELEGRAM_CHAT_ID_2 is set: ${{ secrets.TELEGRAM_CHAT_ID_2 != '' }}"
+
+      # 5️⃣ 执行脚本 - 修复版本
       - name: Run summary
         env:
-          # 环境变量保持不变
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
           DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
           OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
           LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
-          LLM_MODEL: deepseek-chat  # 使用支持更多参数的模型
+          LLM_MODEL: deepseek-chat
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_BOT_TOKEN_2: ${{ secrets.TELEGRAM_BOT_TOKEN_2 }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -57,26 +68,30 @@ jobs:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           TIMEZONE: ${{ secrets.TIMEZONE }}
         run: |
-          # 根据输入决定运行模式
-          REPORT_TYPE="${{ github.event.inputs.report_type || 'yesterday' }}"
+          # 设置报告类型，默认为 yesterday
+          REPORT_TYPE="${{ github.event.inputs.report_type }}"
+          if [ -z "$REPORT_TYPE" ]; then
+            REPORT_TYPE="yesterday"
+          fi
           
-          if [ "$REPORT_TYPE" = "three-days" ]; then
-            echo "📊 运行三天趋势分析..."
-            python -m src.main \
-              --period three-days \
-              ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
-              ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
-          elif [ "$REPORT_TYPE" = "yesterday" ]; then
-            echo "📅 生成昨天的日报..."
-            python -m src.main \
-              --period daily \
-              --yesterday \
-              ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
-              ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
-          else
-            echo "📋 生成今天的日报..."
-            python -m src.main \
-              --period daily \
-              ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
-              ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
-          fi' && '--verbose' || '' }}
+          echo "📊 报告类型: $REPORT_TYPE"
+          
+          # 根据报告类型执行不同命令
+          case "$REPORT_TYPE" in
+            "three-days")
+              echo "🔄 运行三天趋势分析..."
+              python -m src.main --period three-days ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
+              ;;
+            "yesterday")
+              echo "📅 生成昨天的日报..."
+              python -m src.main --period daily --yesterday ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
+              ;;
+            "today")
+              echo "📋 生成今天的日报..."
+              python -m src.main --period daily ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
+              ;;
+            *)
+              echo "❌ 未知的报告类型: $REPORT_TYPE"
+              exit 1
+              ;;
+          esac
