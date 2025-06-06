@@ -123,6 +123,7 @@ class TaskSummarizer:
         work_start_str = "无"
         work_end_str = "无"
         work_hours = 0
+        focus_span_str = "无"
 
         if task_times:
             task_times.sort()
@@ -162,7 +163,8 @@ class TaskSummarizer:
             "work_hours": round(work_hours, 1),
             "total_duration": round(total_duration_minutes / 60, 1),  # 总时长（小时）
             "time_distribution": hour_distribution,
-            "peak_hours": peak_hours
+            "peak_hours": peak_hours,
+            "focus_span": focus_span_str,
         }
 
         logger.info(f"任务聚合完成: 总数 {stats['total']}, 工作时段 {stats['work_start']}-{stats['work_end']}")
