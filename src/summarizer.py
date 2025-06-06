@@ -14,162 +14,98 @@ class TaskSummarizer:
     def __init__(self, templates_dir: str = "templates"):
         self.templates_dir = templates_dir
 
-    def aggregate_tasks(self, tasks: List[Dict]) -> Tuple[Dict, List[str]]:
-        """聚合任务统计信息（修复时间计算）"""
+    def aggregate_tasks(self, tasks: List[Dict]) -> Tuple[Dict, List[Dict]]:
+        """
+        聚合任务统计信息。
+        返回 stats 字典和包含详细信息的 task_details 列表。
+        """
         if not tasks:
-            empty = {
-                "total": 0, "xp": 0, "cats": {}, "mit_count": 0,
-                "mit_done": [], "mit_todo": [],
-                "top_bias": [], "ent_minutes": 0,
-                "work_start": "无", "work_end": "无", "work_hours": 0,
-                "time_distribution": {}  # 新增：时间分布
-            }
-            return empty, []
+            # ... (空任务处理不变)
+            return {}, []
 
         xp_total = 0
         categories = Counter()
-        titles = []
 
-        mit_done_titles = []
-        mit_todo_titles = []
-
-        bias_list = []  # [(标题, 偏差百分比), …]
-        ent_minutes = 0
-
-        earliest_start = None
-        latest_end = None
-
-        # 新增：按小时统计任务分布
-        hour_distribution = {}
-        total_duration_minutes = 0
-
-        # 用于记录实际工作时段（而非单个任务的时间）
-        task_times = []  # 存储所有任务的开始时间
+        # ✅ 我们将返回一个包含详细信息的列表，而不仅仅是标题
+        task_details = []
 
         for t in tasks:
             p = t["properties"]
 
-            # 获取任务的时间信息
-            if "计划日期" in p and p["计划日期"].get("date"):
-                plan = p["计划日期"]["date"]
-                start_iso = plan.get("start")
-                end_iso = plan.get("end", start_iso)
-
-                if start_iso:
-                    try:
-                        # 解析开始时间
-                        start_dt = datetime.fromisoformat(start_iso.replace('Z', '+00:00'))
-                        task_times.append(start_dt)
-
-                        # 统计任务在哪个小时开始
-                        hour = start_dt.hour
-                        hour_distribution[hour] = hour_distribution.get(hour, 0) + 1
-
-                        # 计算任务持续时间
-                        if end_iso and end_iso != start_iso:
-                            end_dt = datetime.fromisoformat(end_iso.replace('Z', '+00:00'))
-                            duration = (end_dt - start_dt).total_seconds() / 60  # 分钟
-                            total_duration_minutes += duration
-
-                    except Exception as e:
-                        logger.warning(f"时间解析错误: {e}")
-
-            # ① XP
-            xp_total += calc_xp(t)
-
-            # ② 分类统计
+            # --- 提取任务的详细信息 ---
+            title = p.get("任务名称", {}).get("title", [{}])[0].get("plain_text", "（无标题）")
             cat = p.get("分类", {}).get("select", {}).get("name", "未分类")
-            categories[cat] += 1
+            xp = calc_xp(t)
+            is_mit = p.get("优先级", {}).get("select", {}).get("name", "") == "MIT"
 
-            # ③ 任务标题
-            title = "（无标题）"
-            if p.get("任务名称", {}).get("title"):
-                title = p["任务名称"]["title"][0].get("plain_text", "（无标题）")
-            titles.append(title)
+            # --- 时间和时长提取 ---
+            start_str, end_str, actual_minutes_str = "N/A", "N/A", "0"
+            actual_minutes = 0
 
-            # ④ MIT 列表拆分
-            pri = p.get("优先级", {}).get("select", {}).get("name", "")
-            sta = p.get("状态", {}).get("select", {}).get("name", "")
-            if pri == "MIT":
-                if sta == "Done":
-                    mit_done_titles.append(title)
-                else:
-                    mit_todo_titles.append(title)
+            # 1. 直接获取“实际用时(min)”
+            formula_prop = p.get("实际用时(min)", {}).get("formula", {})
+            if formula_prop.get("number") is not None:
+                actual_minutes = formula_prop["number"]
+                actual_minutes_str = f"{actual_minutes:.0f}分钟"
 
-            # ⑤ 偏差百分比
-            try:
-                bias_formula = p.get("偏差%", {}).get("formula", {})
-                if bias_formula:
-                    bias_pct = bias_formula.get("string", "")
-                    if bias_pct and bias_pct not in ("—", ""):
-                        bias_value = abs(float(bias_pct.rstrip("%")))
-                        bias_list.append((title, bias_value))
-            except Exception:
-                pass
-
-            # ⑥ 娱乐时长（按分类或标签判断）
-            if cat in ("Entertainment", "Fun", "Life"):
+            # 2. 获取开始和结束时间（用于显示）
+            date_prop = p.get("计划日期", {}).get("date", {})
+            start_iso = date_prop.get("start")
+            end_iso = date_prop.get("end")
+            if start_iso:
                 try:
-                    actual_time = p.get("实际用时(min)", {}).get("formula", {}).get("number", 0)
-                    if actual_time:
-                        ent_minutes += int(actual_time)
+                    start_dt_local = datetime.fromisoformat(start_iso.replace('Z', '+00:00')).astimezone(self.tz)
+                    start_str = start_dt_local.strftime('%H:%M')
+                    if end_iso:
+                        end_dt_local = datetime.fromisoformat(end_iso.replace('Z', '+00:00')).astimezone(self.tz)
+                        end_str = end_dt_local.strftime('%H:%M')
+                    else:
+                        end_str = start_str
                 except Exception:
                     pass
 
-        # ⑦ 拿偏差 Top-3
-        top_3_bias = sorted(bias_list, key=lambda x: x[1], reverse=True)[:3]
+            task_details.append({
+                "title": title,
+                "category": cat,
+                "start_time": start_str,
+                "end_time": end_str,
+                "duration_min": actual_minutes,
+                "xp": xp,
+                "is_mit": is_mit
+            })
 
-        # 计算工作时段（基于所有任务的开始时间）
-        work_start_str = "无"
-        work_end_str = "无"
-        work_hours = 0
-        focus_span_str = "无"
+            # --- 累加统计 ---
+            xp_total += xp
+            categories[cat] += 1
 
-        if task_times:
-            task_times.sort()
-            # 工作开始：最早的任务开始时间
-            work_start = task_times[0]
-            # 工作结束：最晚的任务开始时间 + 平均任务时长
-            avg_duration = total_duration_minutes / len(tasks) if tasks else 60
-            work_end = task_times[-1] + timedelta(minutes=avg_duration)
+        # --- 聚合总体统计数据 ---
+        all_start_times = [datetime.strptime(t['start_time'], '%H:%M') for t in task_details if
+                           t['start_time'] != 'N/A']
+        all_end_times = [datetime.strptime(t['end_time'], '%H:%M') for t in task_details if t['end_time'] != 'N/A']
 
-            work_start_str = work_start.strftime("%H:%M")
-            work_end_str = work_end.strftime("%H:%M")
+        work_start_str, work_end_str, focus_span_str = "无", "无", "无"
+        if all_start_times and all_end_times:
+            earliest_start = min(all_start_times)
+            latest_end = max(all_end_times)
+            work_start_str = earliest_start.strftime("%H:%M")
+            work_end_str = latest_end.strftime("%H:%M")
+            focus_span_hours = (latest_end - earliest_start).total_seconds() / 3600
+            focus_span_str = f"{focus_span_hours:.1f}小时"
 
-            # 计算工作时长（考虑跨天情况）
-            if work_end.date() > work_start.date():
-                # 跨天了
-                work_hours = 24 - work_start.hour + work_end.hour
-            else:
-                work_hours = (work_end - work_start).total_seconds() / 3600
-
-            # 找出最活跃的时间段
-        peak_hours = []
-        if hour_distribution:
-            max_count = max(hour_distribution.values())
-            peak_hours = [h for h, c in hour_distribution.items() if c == max_count]
+        total_actual_hours = sum(t['duration_min'] for t in task_details) / 60
 
         stats = {
             "total": len(tasks),
             "xp": xp_total,
             "cats": dict(categories),
-            "mit_count": len(mit_done_titles),
-            "mit_done": mit_done_titles,
-            "mit_todo": mit_todo_titles,
-            "top_bias": top_3_bias,
-            "ent_minutes": ent_minutes,
+            "mit_count": sum(1 for t in task_details if t['is_mit']),
             "work_start": work_start_str,
             "work_end": work_end_str,
-            "work_hours": round(work_hours, 1),
-            "total_duration": round(total_duration_minutes / 60, 1),  # 总时长（小时）
-            "time_distribution": hour_distribution,
-            "peak_hours": peak_hours,
+            "work_hours": round(total_actual_hours, 1),
             "focus_span": focus_span_str,
         }
 
-        logger.info(f"任务聚合完成: 总数 {stats['total']}, 工作时段 {stats['work_start']}-{stats['work_end']}")
-        logger.info(f"高峰时段: {stats['peak_hours']}, 总工作时长: {stats['work_hours']}小时")
-        return stats, titles
+        return stats, task_details
 
     def _load_template(self, period: str) -> str:
         """加载提示词模板"""
