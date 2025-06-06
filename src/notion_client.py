@@ -20,15 +20,33 @@ class NotionClient:
     @retry_on_failure(max_retries=3)
     def _query_tasks(self, start_date: date, end_date: date,
                      additional_filters: Optional[List[Dict]] = None) -> List[Dict]:
-        """查询任务的通用方法"""
+        """查询任务的通用方法（时间边界更精确）"""
+        from datetime import datetime, time, timedelta
+        import pytz
+
+        # --- ✅ 核心修正：构建精确到时区的ISO 8601时间字符串 ---
+        tz = pytz.timezone(self.config.timezone)
+
+        # 查询范围的开始时间（例如：2025-06-05 00:00:00 in America/Toronto）
+        start_datetime_local = tz.localize(datetime.combine(start_date, time.min))
+
+        # 查询范围的结束时间（结束日期的后一天的0点）
+        # 这样可以确保覆盖整个end_date，直到23:59:59
+        end_datetime_local = tz.localize(datetime.combine(end_date + timedelta(days=1), time.min))
+
+        # 转换为API需要的ISO 8601格式
+        start_iso = start_datetime_local.isoformat()
+        end_iso = end_datetime_local.isoformat()
+
+        # --- 修改查询过滤器，使用精确时间 ---
         filters = [
             {
                 "property": "计划日期",
-                "date": {"on_or_after": start_date.isoformat()}
+                "date": {"on_or_after": start_iso}  # 使用带时区的完整时间
             },
             {
                 "property": "计划日期",
-                "date": {"on_or_before": end_date.isoformat()}
+                "date": {"before": end_iso}  # 使用 "before" 下一天的开始，确保覆盖全天
             },
             {
                 "property": "状态",
@@ -41,7 +59,7 @@ class NotionClient:
 
         payload = {
             "filter": {"and": filters},
-            "page_size": 100,  # 批量获取
+            "page_size": 100,
             "sorts": [
                 {
                     "property": "计划日期",
