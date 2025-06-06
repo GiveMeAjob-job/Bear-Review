@@ -1,85 +1,127 @@
 # src/notifier.py - 通知推送（修复版）
-import smtplib, math, re
+import smtplib
 import requests
+import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from .config import Config
 from .utils import retry_on_failure, setup_logger
 
 logger = setup_logger(__name__)
-MD_SPECIAL = r'[_*[\]()~`>#+\-=|{}.!\\]'   # Telegram MarkdownV2 需要转义的符号
 
 
 class Notifier:
     def __init__(self, config: Config):
         self.config = config
 
+    def _clean_markdown(self, text: str) -> str:
+        """清理文本中的Markdown格式"""
+        # 移除加粗标记 **text** 或 __text__
+        text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+        text = re.sub(r'__(.+?)__', r'\1', text)
+
+        # 移除斜体标记 *text* 或 _text_
+        text = re.sub(r'\*(.+?)\*', r'\1', text)
+        text = re.sub(r'_(.+?)_', r'\1', text)
+
+        # 移除代码标记 `code`
+        text = re.sub(r'`(.+?)`', r'\1', text)
+
+        # 移除标题标记 # ## ###
+        text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
+
+        # 移除引用标记 >
+        text = re.sub(r'^>\s+', '', text, flags=re.MULTILINE)
+
+        # 移除链接 [text](url)
+        text = re.sub(r'\[(.+?)\]\(.+?\)', r'\1', text)
+
+        # 移除图片 ![alt](url)
+        text = re.sub(r'!\[.*?\]\(.+?\)', '', text)
+
+        # 移除水平线 --- 或 ***
+        text = re.sub(r'^(\*{3,}|_{3,}|-{3,})$', '', text, flags=re.MULTILINE)
+
+        # 移除列表标记但保留缩进
+        text = re.sub(r'^(\s*)[*+-]\s+', r'\1• ', text, flags=re.MULTILINE)
+        text = re.sub(r'^(\s*)\d+\.\s+', r'\1• ', text, flags=re.MULTILINE)
+
+        return text.strip()
+
     @retry_on_failure(max_retries=2)
-    def send_telegram(self, message: str, title: str = "") -> bool:
-        """发送Telegram通知"""
-        if not (self.config.telegram_bot_token and self.config.telegram_chat_id):
-            logger.warning("Telegram配置不完整，跳过推送")
+    def send_telegram(self, message: str, title: str = "", chat_id: Optional[str] = None) -> bool:
+        """发送Telegram通知到指定chat_id"""
+        bot_token = self.config.telegram_bot_token
+        target_chat_id = chat_id or self.config.telegram_chat_id
+
+        if not (bot_token and target_chat_id):
+            logger.warning(f"Telegram配置不完整，跳过推送到 {target_chat_id}")
             return False
 
         try:
-            # 构建消息，避免 Markdown 解析错误
+            # 清理消息中的Markdown格式
+            clean_message = self._clean_markdown(message)
+
+            # 构建消息
             if title:
-                full_message = f"*{self._escape_markdown(title)}*\n\n{self._escape_markdown(message)}"
+                clean_title = self._clean_markdown(title)
+                full_message = f"📋 {clean_title}\n{'─' * 30}\n\n{clean_message}"
             else:
-                full_message = self._escape_markdown(message)
+                full_message = clean_message
 
             # 限制消息长度（Telegram 限制 4096 字符）
             if len(full_message) > 4000:
                 full_message = full_message[:3997] + "..."
 
-            url = f"https://api.telegram.org/bot{self.config.telegram_bot_token}/sendMessage"
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
 
             # 确保 chat_id 是整数
             try:
-                chat_id = int(self.config.telegram_chat_id)
+                chat_id_int = int(target_chat_id)
             except (ValueError, TypeError):
-                logger.error(f"无效的 Telegram Chat ID: {self.config.telegram_chat_id}")
+                logger.error(f"无效的 Telegram Chat ID: {target_chat_id}")
                 return False
 
             payload = {
-                "chat_id": chat_id,
+                "chat_id": chat_id_int,
                 "text": full_message,
-                "parse_mode": "MarkdownV2"
+                "parse_mode": None  # 使用纯文本，避免解析错误
             }
 
             response = requests.post(url, json=payload, timeout=10)
 
             if response.status_code == 200:
-                logger.info("Telegram通知发送成功")
+                logger.info(f"Telegram通知发送成功到 {target_chat_id}")
                 return True
             else:
                 logger.error(f"Telegram API 错误 {response.status_code}: {response.text}")
-
-                # 如果 Markdown 解析失败，尝试纯文本
-                if "can't parse entities" in response.text.lower():
-                    logger.info("Markdown 解析失败，尝试纯文本发送")
-                    payload["parse_mode"] = None
-                    payload["text"] = f"{title}\n\n{message}" if title else message
-                    response = requests.post(url, json=payload, timeout=10)
-
-                    if response.status_code == 200:
-                        logger.info("Telegram通知发送成功（纯文本）")
-                        return True
-
                 return False
 
         except Exception as e:
             logger.error(f"Telegram通知发送失败: {e}")
             return False
 
-    def _escape_markdown(self, text: str) -> str:
-        """转义 Markdown 特殊字符"""
-        # Telegram Markdown v1 需要转义的字符
-        special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-        for char in special_chars:
-            text = text.replace(char, f'\\{char}')
-        return text
+    def send_telegram_multiple(self, message: str, title: str = "", chat_ids: List[str] = None) -> Dict[str, bool]:
+        """发送到多个Telegram账号"""
+        results = {}
+
+        # 如果没有提供chat_ids列表，使用默认的
+        if not chat_ids:
+            # 尝试从环境变量获取多个chat_id
+            primary_chat_id = self.config.telegram_chat_id
+            secondary_chat_id = self.config.telegram_chat_id_2  # 需要在config中添加
+
+            chat_ids = [primary_chat_id]
+            if secondary_chat_id:
+                chat_ids.append(secondary_chat_id)
+
+        # 发送到每个chat_id
+        for chat_id in chat_ids:
+            if chat_id:
+                results[chat_id] = self.send_telegram(message, title, chat_id)
+
+        return results
 
     @retry_on_failure(max_retries=2)
     def send_email(self, subject: str, content: str, to_email: Optional[str] = None) -> bool:
@@ -89,12 +131,15 @@ class Notifier:
             return False
 
         try:
+            # 清理内容中的Markdown
+            clean_content = self._clean_markdown(content)
+
             msg = MIMEMultipart()
             msg['From'] = self.config.email_username
             msg['To'] = to_email or self.config.email_username
             msg['Subject'] = subject
 
-            msg.attach(MIMEText(content, 'plain', 'utf-8'))
+            msg.attach(MIMEText(clean_content, 'plain', 'utf-8'))
 
             with smtplib.SMTP(self.config.email_smtp_server, 587) as server:
                 server.starttls()
@@ -112,9 +157,25 @@ class Notifier:
         """发送所有可用的通知"""
         results = {}
 
-        # Telegram通知
-        if self.config.telegram_bot_token and self.config.telegram_chat_id:
-            results['telegram'] = self.send_telegram(content, title)
+        # Telegram通知 - 发送到多个账号
+        if self.config.telegram_bot_token:
+            # 获取所有chat_ids
+            chat_ids = []
+
+            # 主账号
+            if self.config.telegram_chat_id:
+                chat_ids.append(self.config.telegram_chat_id)
+
+            # 副账号（如果存在）
+            if hasattr(self.config, 'telegram_chat_id_2') and self.config.telegram_chat_id_2:
+                chat_ids.append(self.config.telegram_chat_id_2)
+
+            # 发送到所有账号
+            telegram_results = self.send_telegram_multiple(content, title, chat_ids)
+
+            # 合并结果
+            for chat_id, success in telegram_results.items():
+                results[f'telegram_{chat_id}'] = success
         else:
             results['telegram'] = False
 

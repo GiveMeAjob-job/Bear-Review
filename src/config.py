@@ -1,4 +1,4 @@
-# src/config.py - 配置管理
+# src/config.py - 配置管理（支持多个Telegram账号）
 import os
 from dataclasses import dataclass
 from typing import Optional
@@ -19,6 +19,7 @@ class Config:
     # 通知配置
     telegram_bot_token: Optional[str] = None
     telegram_chat_id: Optional[str] = None
+    telegram_chat_id_2: Optional[str] = None  # 第二个Telegram账号
     email_smtp_server: Optional[str] = None
     email_username: Optional[str] = None
     email_password: Optional[str] = None
@@ -49,9 +50,10 @@ class Config:
             llm_provider=llm_provider,
             telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN"),
             telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID"),
+            telegram_chat_id_2=os.getenv("TELEGRAM_CHAT_ID_2"),  # 第二个账号
             email_smtp_server=os.getenv("EMAIL_SMTP_SERVER"),
             email_username=os.getenv("EMAIL_USERNAME"),
             email_password=os.getenv("EMAIL_PASSWORD"),
-            timezone=os.getenv("TIMEZONE", "America/Toronto") or "America/Toronto",  # 确保不为空
+            timezone=os.getenv("TIMEZONE", "America/Toronto") or "America/Toronto",
             max_retries=int(os.getenv("MAX_RETRIES", "3"))
         )
