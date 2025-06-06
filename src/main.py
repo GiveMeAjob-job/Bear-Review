@@ -80,7 +80,7 @@ def handle_three_days_report(notion: NotionClient, summarizer: TaskSummarizer,
 
         # ✅ 调用智能统计函数，而不是基础版
         if tasks:
-            stats, _ = summarizer.aggregate_tasks_smart(tasks)
+            stats, _ = summarizer.aggregate_tasks(tasks)
         else:
             stats = summarizer._empty_stats()
 
