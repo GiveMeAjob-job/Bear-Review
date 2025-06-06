@@ -185,7 +185,7 @@ class TaskSummarizer:
     def _get_default_template(self, period: str) -> str:
         """获取默认模板"""
         return """# Daily Review
-- 工作区间：{work_start} - {work_end}（共 {focus_span}）
+- 工作区间：{start_time} - {end_time}（共 {focus_span}）
 - 已完成任务 {total} 个，分类分布：{categories}，获得 XP {xp}，其中 MIT 任务 {mit_count} 个。
 
 ## 任务清单
@@ -235,8 +235,8 @@ MIT事件：最少完成3个MIT事件，检查是否为重复，比如完成D333
             categories=categories,
             mit_count=stats["mit_count"],
             task_list=task_list,
-            work_start=stats["work_start"],
-            work_end=stats["work_end"],
+            start_time=stats["work_start"],
+            end_time=stats["work_end"],
             focus_span=stats["focus_span"]
         )
 
