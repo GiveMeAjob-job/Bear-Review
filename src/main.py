@@ -1,16 +1,4 @@
-# src/main.py - 完整版本
-"""
-Task-Master 入口脚本
-支持日报、三天趋势分析、周报、月报
-
-使用示例:
-python -m src.main --period daily                    # 今天的日报
-python -m src.main --period daily --yesterday       # 昨天的日报（解决时区问题）
-python -m src.main --period three-days              # 三天趋势分析
-python -m src.main --period weekly                  # 周报
-python -m src.main --period monthly                 # 月报
-python -m src.main --period daily --dry-run         # 试运行（不发送通知）
-"""
+# src/main.py - 🔄 最终完整重构版
 
 import argparse
 import sys
@@ -36,17 +24,8 @@ def handle_daily_report(notion: NotionClient, summarizer: TaskSummarizer,
                         llm: LLMClient, is_yesterday: bool = False) -> str:
     """处理日报生成"""
     if is_yesterday:
-        # 获取昨天的任务（解决时区问题）
-        tz = pytz.timezone(notion.config.timezone)
-        now = datetime.now(tz)
-        yesterday = (now - timedelta(days=1)).date()
-
-        logger.info(f"⏰ 当前时间: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-        logger.info(f"📅 生成昨天({yesterday})的日报")
-
         tasks = notion.get_yesterday_tasks()
     else:
-        # 获取今天的任务
         tasks = notion.query_period_tasks("daily")
 
     logger.info(f"📋 找到 {len(tasks)} 个已完成任务")
@@ -54,12 +33,12 @@ def handle_daily_report(notion: NotionClient, summarizer: TaskSummarizer,
     if not tasks:
         return "# Daily Review\n\n暂无已完成任务，继续努力！💪"
 
-    # 聚合统计
-    stats, titles = summarizer.aggregate_tasks(tasks)
+    # ✅ 调用为日报设计的详细统计方法
+    stats, task_details = summarizer.get_detailed_stats(tasks)
     logger.info(f"📊 统计: {stats}")
 
-    # 构建提示词并生成总结
-    prompt = summarizer.build_prompt(stats, titles, "daily")
+    # ✅ 将详细的 task_details 传递给 build_prompt
+    prompt = summarizer.build_prompt(stats, task_details, "daily")
     return llm.ask_llm(prompt)
 
 
@@ -68,33 +47,27 @@ def handle_three_days_report(notion: NotionClient, summarizer: TaskSummarizer,
     """处理三天趋势分析"""
     logger.info("🔄 开始三天趋势分析...")
 
-    # ... (获取三天数据的逻辑不变) ...
     tz = pytz.timezone(notion.config.timezone)
     today = datetime.now(tz).date()
     three_days_stats = {}
 
     for days_ago in [1, 2, 3]:
         target_date = today - timedelta(days=days_ago)
+        # 使用精确的日期边界查询
         tasks = notion._query_tasks(target_date, target_date)
         logger.info(f"📅 {target_date}: 找到 {len(tasks)} 个任务")
 
-        # ✅ 调用智能统计函数，而不是基础版
-        if tasks:
-            stats, _ = summarizer.aggregate_tasks_smart(tasks)
-        else:
-            stats = summarizer._empty_stats()
+        # ✅ 调用为三日报告设计的趋势统计方法
+        stats = summarizer.get_trend_stats(tasks)
 
         three_days_stats[target_date.isoformat()] = stats
 
     # 计算三天总计
-    total_tasks = sum(s['total'] for s in three_days_stats.values())
-    total_xp = sum(s['xp'] for s in three_days_stats.values())
+    total_tasks = sum(s.get('total', 0) for s in three_days_stats.values())
+    total_xp = sum(s.get('xp', 0) for s in three_days_stats.values())
     logger.info(f"📊 三天总计: {total_tasks} 个任务, {total_xp} XP")
 
-    # 生成三天分析prompt
     prompt = summarizer.build_three_day_prompt(three_days_stats)
-
-    # 调用LLM生成分析，增加token限制
     return llm.ask_llm(prompt, max_tokens=1200)
 
 
@@ -107,18 +80,17 @@ def handle_period_report(notion: NotionClient, summarizer: TaskSummarizer,
     if not tasks:
         return f"# {period.title()} Review\n\n暂无已完成任务，继续努力！💪"
 
-    # 聚合统计
-    stats, titles = summarizer.aggregate_tasks(tasks)
+    # ✅ 周报和月报也使用详细统计方法
+    stats, task_details = summarizer.get_detailed_stats(tasks)
     logger.info(f"📊 统计: {stats}")
 
-    # 构建提示词并生成总结
-    prompt = summarizer.build_prompt(stats, titles, period)
+    # ✅ 将详细的 task_details 传递给 build_prompt
+    prompt = summarizer.build_prompt(stats, task_details, period)
     return llm.ask_llm(prompt)
 
 
 def main():
     """主函数"""
-    # CLI 参数
     parser = argparse.ArgumentParser(description="Generate periodical summaries")
     parser.add_argument(
         "--period",
@@ -143,34 +115,27 @@ def main():
     )
     args = parser.parse_args()
 
-    # 设置日志级别
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
         logger.setLevel(logging.DEBUG)
 
-    # 加载配置
     cfg = Config.from_env()
 
-    # 调试信息
     logger.info(f"🔧 配置加载完成:")
     logger.info(f"   - NOTION_TOKEN: {'已设置' if cfg.notion_token else '未设置'}")
     logger.info(f"   - NOTION_DB_ID: {cfg.notion_db_id if cfg.notion_db_id else '未设置'}")
     logger.info(f"   - LLM_PROVIDER: {cfg.llm_provider}")
     logger.info(f"   - TIMEZONE: {cfg.timezone}")
 
-    # 验证必要配置
-    if not cfg.notion_token:
-        logger.error("❌ 环境变量 NOTION_TOKEN 未设置")
-        sys.exit(1)
-
-    if not cfg.notion_db_id:
-        logger.error("❌ 环境变量 NOTION_DB_ID 未设置")
+    if not cfg.notion_token or not cfg.notion_db_id:
+        logger.error("❌ 环境变量 NOTION_TOKEN 或 NOTION_DB_ID 未设置")
         sys.exit(1)
 
     try:
         # 初始化组件
         notion = NotionClient(cfg)
-        summarizer = TaskSummarizer(cfg)
+        # ✅ 正确地初始化 Summarizer，使用关键字参数以增加清晰度
+        summarizer = TaskSummarizer(config=cfg)
         llm = LLMClient(cfg)
         notifier = Notifier(cfg)
 
