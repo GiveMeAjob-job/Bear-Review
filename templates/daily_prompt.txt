@@ -1,6 +1,6 @@
 # templates/daily_prompt.txt - 日报模板（无Markdown格式）
 Daily Review
-- 工作区间：{work_start} - {work_end}（共 {focus_span}）
+- 工作区间：{start_time} - {end_time}（共 {focus_span}）
 - 获得 XP {xp}，消耗番茄 {tomatoes} 个
 - 已完成任务 {total} 个，分类分布：{categories}，获得 XP {xp}，其中 MIT 任务 {mit_count} 个。
 
