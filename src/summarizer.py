@@ -104,19 +104,24 @@ class TaskSummarizer:
     # 方法二：为【三日报告】提供宏观的趋势数据
     # --------------------------------------------------------------------------
     def get_trend_stats(self, tasks: List[Dict]) -> Dict:
-        """为宏观分析生成统计，智能区分工作/睡眠/娱乐。"""
+        """为宏观分析生成统计，智能区分并使用最准确的数据源。"""
         if not tasks:
             return self._empty_trend_stats()
 
         total_xp, sleep_duration, entertainment_duration = 0, 0, 0
+
+        # ✅ 新增：用于精确计算效率指标的分母
+        productive_minutes = 0
+
         work_periods = []
         mit_count = 0
 
         for t in tasks:
-            parsed = self._parse_single_task(t)
+            parsed = self._parse_single_task(t)  # 使用我们之前重构的辅助方法
             total_xp += parsed['xp']
             if parsed['is_mit']: mit_count += 1
 
+            # 宏观时间分配，仍然使用起止时间来计算
             if parsed['start_dt'] and parsed['end_dt']:
                 duration_hours = (parsed['end_dt'] - parsed['start_dt']).total_seconds() / 3600
                 is_sleep = any(k in parsed['title'].lower() for k in ['睡觉', 'sleep', '补觉'])
@@ -129,18 +134,26 @@ class TaskSummarizer:
                     work_periods.append((parsed['start_dt'], parsed['end_dt']))
                     if is_ent:
                         entertainment_duration += duration_hours
+                    else:
+                        # ✅ 如果一个任务既不是睡眠也不是娱乐，我们就累加它的“实际用时”
+                        productive_minutes += parsed.get('actual_minutes', 0)
 
         merged_periods = self._merge_overlapping_periods(work_periods)
+        # “实际工作时段”仍然是所有非睡眠时段的合并，用于展示作息
         actual_work_hours = sum((end - start).total_seconds() / 3600 for start, end in merged_periods)
+
+        # “有效工作小时数”来自于精确的分钟数累加
+        productive_hours = productive_minutes / 60
 
         stats = {
             "total": len(tasks), "xp": total_xp, "mit_count": mit_count,
-            "actual_work_hours": round(actual_work_hours - entertainment_duration, 1),  # 实际工作需要减去娱乐
+            # 用于分析作息规律
+            "actual_work_hours": round(actual_work_hours, 1),
             "sleep_hours": round(sleep_duration, 1),
             "entertainment_hours": round(entertainment_duration, 1),
+            # ✅ 使用最精确的“有效工作小时数”来计算效率
+            "xp_per_hour": round(total_xp / productive_hours, 1) if productive_hours > 0 else 0
         }
-        stats["xp_per_hour"] = round(total_xp / stats['actual_work_hours'], 1) if stats['actual_work_hours'] > 0 else 0
-
         return stats
 
     # --------------------------------------------------------------------------
