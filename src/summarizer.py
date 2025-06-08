@@ -1,9 +1,7 @@
-# src/summarizer.py - 🔄 最终重构版
-
+# src/summarizer.py - 🔄 基于Notion公式的精简修改版
 import os
 from collections import Counter
 from typing import Dict, List, Tuple
-from .notion_client import calc_xp
 from .utils import setup_logger
 from datetime import datetime
 import pytz
@@ -12,76 +10,142 @@ logger = setup_logger(__name__)
 
 
 class TaskSummarizer:
-    # 构造函数接收 config 对象，以便获取时区等配置
     def __init__(self, config, templates_dir: str = "templates"):
         self.config = config
         self.templates_dir = templates_dir
         self.tz = pytz.timezone(config.timezone)
 
-    # --------------------------------------------------------------------------
-    # 核心：私有辅助方法，用于解析单个任务
-    # --------------------------------------------------------------------------
-    def _parse_single_task(self, task: Dict) -> Dict:
-        """解析单个Notion任务，返回一个结构化的字典"""
-        p = task["properties"]
-        title = p.get("任务名称", {}).get("title", [{}])[0].get("plain_text", "（无标题）")
-        cat = p.get("分类", {}).get("select", {}).get("name", "未分类")
+    def aggregate_tasks(self, tasks: List[Dict]) -> Tuple[Dict, List[str]]:
+        """聚合任务统计信息 - 现在直接从Notion公式读取XP和番茄数"""
+        if not tasks:
+            return {"total": 0, "xp": 0, "cats": {}, "mit_count": 0}, []
 
-        start_dt, end_dt = None, None
-        date_prop = p.get("计划日期", {}).get("date", {})
-        start_iso, end_iso = date_prop.get("start"), date_prop.get("end")
-        if start_iso:
+        xp_total = 0
+        tomatoes_total = 0
+        categories = Counter()
+        mit_count = 0
+        titles = []
+
+        for task in tasks:
             try:
-                start_dt = datetime.fromisoformat(start_iso.replace('Z', '+00:00'))
-                end_dt = datetime.fromisoformat(
-                    end_iso.replace('Z', '+00:00')) if end_iso and end_iso != start_iso else start_dt
-            except Exception:
-                pass
+                props = task.get("properties", {})
 
-        return {
-            "title": title,
-            "category": cat,
-            "xp": calc_xp(task),
-            "is_mit": p.get("优先级", {}).get("select", {}).get("name", "") == "MIT",
-            "actual_minutes": p.get("实际用时(min)", {}).get("formula", {}).get("number", 0) or 0,
-            "start_dt": start_dt,
-            "end_dt": end_dt,
+                # 分类统计
+                category = (
+                    props.get("分类", {})
+                    .get("select", {})
+                    .get("name", "未分类")
+                )
+                categories[category] += 1
+
+                # MIT计数
+                priority = (
+                    props.get("优先级", {})
+                    .get("select", {})
+                    .get("name", "")
+                )
+                if priority == "MIT":
+                    mit_count += 1
+
+                # ✅ 核心修改：直接从Notion公式读取XP
+                xp = props.get("XP", {}).get("formula", {}).get("number", 0) or 0
+                xp_total += xp
+
+                # ✅ 核心修改：直接从Notion公式读取番茄数
+                tomatoes = props.get("番茄数", {}).get("formula", {}).get("number", 0) or 0
+                tomatoes_total += tomatoes
+
+                # 任务标题
+                title_prop = props.get("任务名称", {})
+                if title_prop.get("title"):
+                    title = title_prop["title"][0]["plain_text"]
+                    titles.append(title)
+
+            except (KeyError, TypeError, IndexError) as e:
+                logger.warning(f"处理任务时出错: {e}, 任务ID: {task.get('id', 'unknown')}")
+                continue
+
+        stats = {
+            "total": len(tasks),
+            "xp": xp_total,
+            "tomatoes": tomatoes_total,
+            "cats": dict(categories),
+            "mit_count": mit_count
         }
 
-    # --------------------------------------------------------------------------
-    # 方法一：为【日报、周报、月报】提供详细的微观数据
-    # --------------------------------------------------------------------------
+        logger.info(
+            f"任务聚合完成: 总数 {stats['total']}, XP {stats['xp']}, 番茄 {tomatoes_total}, MIT {stats['mit_count']}")
+        return stats, titles
+
     def get_detailed_stats(self, tasks: List[Dict]) -> Tuple[Dict, List[Dict]]:
-        """为微观分析生成统计，基于'实际用时(min)'，返回详细任务列表。"""
+        """为日报/周报/月报提供详细的任务数据"""
         if not tasks:
             return {}, []
 
         task_details_for_prompt = []
         total_xp = 0
+        total_tomatoes = 0
         total_actual_minutes = 0
         categories = Counter()
         all_start_dts = []
         all_end_dts = []
 
         for t in tasks:
-            parsed = self._parse_single_task(t)
+            try:
+                props = t.get("properties", {})
 
-            total_xp += parsed['xp']
-            total_actual_minutes += parsed['actual_minutes']
-            categories[parsed['category']] += 1
+                # 基础信息
+                title = props.get("任务名称", {}).get("title", [{}])[0].get("plain_text", "（无标题）")
+                cat = props.get("分类", {}).get("select", {}).get("name", "未分类")
+                priority = props.get("优先级", {}).get("select", {}).get("name", "")
+                is_mit = priority == "MIT"
 
-            if parsed['start_dt']: all_start_dts.append(parsed['start_dt'])
-            if parsed['end_dt']: all_end_dts.append(parsed['end_dt'])
+                # ✅ 从Notion公式读取
+                xp = props.get("XP", {}).get("formula", {}).get("number", 0) or 0
+                tomatoes = props.get("番茄数", {}).get("formula", {}).get("number", 0) or 0
+                actual_minutes = props.get("实际用时(min)", {}).get("formula", {}).get("number", 0) or 0
 
-            start_str = parsed['start_dt'].astimezone(self.tz).strftime('%H:%M') if parsed['start_dt'] else 'N/A'
-            end_str = parsed['end_dt'].astimezone(self.tz).strftime('%H:%M') if parsed['end_dt'] else 'N/A'
+                total_xp += xp
+                total_tomatoes += tomatoes
+                total_actual_minutes += actual_minutes
+                categories[cat] += 1
 
-            task_details_for_prompt.append({
-                "title": parsed['title'], "category": parsed['category'],
-                "start_time": start_str, "end_time": end_str,
-                "duration_min": parsed['actual_minutes'], "is_mit": parsed['is_mit']
-            })
+                # 时间信息
+                start_dt, end_dt = None, None
+                date_prop = props.get("计划日期", {}).get("date", {})
+                start_iso = date_prop.get("start")
+                end_iso = date_prop.get("end")
 
+                if start_iso:
+                    try:
+                        start_dt = datetime.fromisoformat(start_iso.replace('Z', '+00:00'))
+                        end_dt = datetime.fromisoformat(
+                            end_iso.replace('Z', '+00:00')) if end_iso and end_iso != start_iso else start_dt
+                    except Exception:
+                        pass
+
+                if start_dt: all_start_dts.append(start_dt)
+                if end_dt: all_end_dts.append(end_dt)
+
+                start_str = start_dt.astimezone(self.tz).strftime('%H:%M') if start_dt else 'N/A'
+                end_str = end_dt.astimezone(self.tz).strftime('%H:%M') if end_dt else 'N/A'
+
+                task_details_for_prompt.append({
+                    "title": title,
+                    "category": cat,
+                    "start_time": start_str,
+                    "end_time": end_str,
+                    "duration_min": actual_minutes,
+                    "xp": xp,
+                    "tomatoes": tomatoes,
+                    "is_mit": is_mit
+                })
+
+            except Exception as e:
+                logger.warning(f"解析任务失败: {e}")
+                continue
+
+        # 计算时间范围
         work_start_str, work_end_str, focus_span_str = "无", "无", "无"
         if all_start_dts and all_end_dts:
             earliest_start = min(all_start_dts)
@@ -91,119 +155,150 @@ class TaskSummarizer:
             focus_span_hours = (latest_end - earliest_start).total_seconds() / 3600
             focus_span_str = f"{focus_span_hours:.1f}小时"
 
+        # ✅ 计算效率指标
+        xp_per_tomato = round(total_xp / total_tomatoes, 2) if total_tomatoes > 0 else 0
+
         stats = {
-            "total": len(tasks), "xp": total_xp, "cats": dict(categories),
+            "total": len(tasks),
+            "xp": total_xp,
+            "tomatoes": total_tomatoes,
+            "xp_per_tomato": xp_per_tomato,
+            "cats": dict(categories),
             "mit_count": sum(1 for t in task_details_for_prompt if t['is_mit']),
-            "work_start": work_start_str, "work_end": work_end_str,
+            "work_start": work_start_str,
+            "work_end": work_end_str,
             "work_hours": round(total_actual_minutes / 60, 1),
             "focus_span": focus_span_str,
         }
+
         return stats, task_details_for_prompt
 
-    # --------------------------------------------------------------------------
-    # 方法二：为【三日报告】提供宏观的趋势数据
-    # --------------------------------------------------------------------------
     def get_trend_stats(self, tasks: List[Dict]) -> Dict:
-        """为宏观分析生成统计，智能区分并使用最准确的数据源。"""
+        """为三日报告提供趋势数据"""
         if not tasks:
             return self._empty_trend_stats()
 
-        total_xp, sleep_duration, entertainment_duration = 0, 0, 0
-
-        # ✅ 新增：用于精确计算效率指标的分母
-        productive_minutes = 0
-
+        total_xp = 0
+        total_tomatoes = 0
+        sleep_duration = 0
+        entertainment_duration = 0
         work_periods = []
         mit_count = 0
 
         for t in tasks:
-            parsed = self._parse_single_task(t)  # 使用我们之前重构的辅助方法
-            total_xp += parsed['xp']
-            if parsed['is_mit']: mit_count += 1
+            try:
+                props = t.get("properties", {})
 
-            # 宏观时间分配，仍然使用起止时间来计算
-            if parsed['start_dt'] and parsed['end_dt']:
-                duration_hours = (parsed['end_dt'] - parsed['start_dt']).total_seconds() / 3600
-                is_sleep = any(k in parsed['title'].lower() for k in ['睡觉', 'sleep', '补觉'])
-                is_ent = parsed['category'] in ["Entertainment", "Fun"] or any(
-                    k in parsed['title'].lower() for k in ['刷', '视频', '看剧'])
+                # ✅ 从公式读取
+                xp = props.get("XP", {}).get("formula", {}).get("number", 0) or 0
+                tomatoes = props.get("番茄数", {}).get("formula", {}).get("number", 0) or 0
 
-                if is_sleep:
-                    sleep_duration += duration_hours
-                else:
-                    work_periods.append((parsed['start_dt'], parsed['end_dt']))
-                    if is_ent:
-                        entertainment_duration += duration_hours
+                total_xp += xp
+                total_tomatoes += tomatoes
+
+                priority = props.get("优先级", {}).get("select", {}).get("name", "")
+                if priority == "MIT":
+                    mit_count += 1
+
+                # 分析时间分配
+                title = props.get("任务名称", {}).get("title", [{}])[0].get("plain_text", "")
+                category = props.get("分类", {}).get("select", {}).get("name", "")
+
+                date_prop = props.get("计划日期", {}).get("date", {})
+                start_iso = date_prop.get("start")
+                end_iso = date_prop.get("end")
+
+                if start_iso and end_iso:
+                    start_dt = datetime.fromisoformat(start_iso.replace('Z', '+00:00'))
+                    end_dt = datetime.fromisoformat(end_iso.replace('Z', '+00:00'))
+                    duration_hours = (end_dt - start_dt).total_seconds() / 3600
+
+                    is_sleep = any(k in title.lower() for k in ['睡觉', 'sleep', '补觉'])
+                    is_ent = category == "Entertainment" or any(k in title.lower() for k in ['刷', '视频', '看剧'])
+
+                    if is_sleep:
+                        sleep_duration += duration_hours
                     else:
-                        # ✅ 如果一个任务既不是睡眠也不是娱乐，我们就累加它的“实际用时”
-                        productive_minutes += parsed.get('actual_minutes', 0)
+                        work_periods.append((start_dt, end_dt))
+                        if is_ent:
+                            entertainment_duration += duration_hours
 
+            except Exception as e:
+                logger.warning(f"处理趋势数据失败: {e}")
+                continue
+
+        # 合并工作时段
         merged_periods = self._merge_overlapping_periods(work_periods)
-        # “实际工作时段”仍然是所有非睡眠时段的合并，用于展示作息
         actual_work_hours = sum((end - start).total_seconds() / 3600 for start, end in merged_periods)
 
-        # “有效工作小时数”来自于精确的分钟数累加
-        productive_hours = productive_minutes / 60
+        # ✅ 计算效率
+        xp_per_tomato = round(total_xp / total_tomatoes, 2) if total_tomatoes > 0 else 0
 
         stats = {
-            "total": len(tasks), "xp": total_xp, "mit_count": mit_count,
-            # 用于分析作息规律
+            "total": len(tasks),
+            "xp": total_xp,
+            "tomatoes": total_tomatoes,
+            "xp_per_tomato": xp_per_tomato,
+            "mit_count": mit_count,
             "actual_work_hours": round(actual_work_hours, 1),
             "sleep_hours": round(sleep_duration, 1),
             "entertainment_hours": round(entertainment_duration, 1),
-            # ✅ 使用最精确的“有效工作小时数”来计算效率
-            "xp_per_hour": round(total_xp / productive_hours, 1) if productive_hours > 0 else 0
         }
+
         return stats
 
-    # --------------------------------------------------------------------------
-    # Prompt 构建方法
-    # --------------------------------------------------------------------------
-    def build_prompt(self, stats: Dict, task_details: List[Dict], period: str) -> str:
-        """构建日报、周报、月报的提示词"""
+    def build_prompt(self, stats: Dict, titles: List[str], period: str) -> str:
+        """构建AI提示词 - 保持原有逻辑，只是stats里多了番茄数据"""
         template = self._load_template(period)
-        if not stats: return "今天没有完成任何任务。"
 
-        categories = ", ".join(f"{k}:{v}" for k, v in stats["cats"].items()) if stats.get("cats") else "无"
+        # 格式化分类分布
+        if stats["cats"]:
+            categories = ", ".join(f"{k}:{v}" for k, v in stats["cats"].items())
+        else:
+            categories = "无"
 
-        task_list_lines = []
-        if task_details:
-            tasks_by_cat = {}
-            for task in task_details:
-                cat = task['category']
-                if cat not in tasks_by_cat: tasks_by_cat[cat] = []
-                tasks_by_cat[cat].append(task)
-            for cat, tasks_in_cat in tasks_by_cat.items():
-                task_list_lines.append(f"【{cat}】")
-                for task in sorted(tasks_in_cat, key=lambda x: x['start_time']):
-                    duration_str = f"{task['duration_min']:.0f}分钟"
-                    time_str = f"{task['start_time']}-{task['end_time']}"
-                    mit_str = " (MIT)" if task['is_mit'] else ""
-                    task_list_lines.append(f"- {task['title']}{mit_str} | {time_str} | 用时: {duration_str}")
+        # 格式化任务列表
+        if titles:
+            task_list = "\n".join(f"- {title}" for title in titles[:20])
+            if len(titles) > 20:
+                task_list += f"\n... 还有 {len(titles) - 20} 个任务"
+        else:
+            task_list = "无已完成任务"
 
-        task_list = "\n".join(task_list_lines) if task_list_lines else "无已完成任务"
-
-        return template.format(
-            total=stats.get("total", 0), xp=stats.get("xp", 0), categories=categories,
-            mit_count=stats.get("mit_count", 0), task_list=task_list,
-            start_time=stats.get("work_start", "无"), end_time=stats.get("work_end", "无"),
+        # ✅ 新增番茄和效率数据
+        prompt = template.format(
+            total=stats["total"],
+            xp=stats["xp"],
+            tomatoes=stats.get("tomatoes", 0),
+            xp_per_tomato=stats.get("xp_per_tomato", 0),
+            categories=categories,
+            mit_count=stats["mit_count"],
+            task_list=task_list,
+            work_start=stats.get("work_start", "无"),
+            work_end=stats.get("work_end", "无"),
+            work_hours=stats.get("work_hours", 0),
             focus_span=stats.get("focus_span", "无")
         )
 
+        logger.info(f"生成 {period} 提示词，长度: {len(prompt)} 字符")
+        return prompt
+
     def build_three_day_prompt(self, three_days_stats: Dict[str, Dict]) -> str:
-        """构建准确的三天趋势分析提示词（从模板加载）"""
-
-        # ✅ 第一步：加载外部模板文件
-        template = self._load_template("three_days")  # 使用已有的加载函数
-
-        # --- 后面的逻辑负责准备模板需要的数据 ---
+        """构建三天趋势分析提示词"""
+        template = self._load_template("three_days")
 
         sorted_dates = sorted(three_days_stats.keys())
         weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
         days_summary_lines = []
 
         # 三天总计
-        total_tasks, total_work_hours, total_sleep_hours, total_entertainment_hours, total_xp, total_mit = 0, 0, 0, 0, 0, 0
+        total_tasks = 0
+        total_xp = 0
+        total_tomatoes = 0
+        total_work_hours = 0
+        total_sleep_hours = 0
+        total_entertainment_hours = 0
+        total_mit = 0
 
         for date_str in sorted_dates:
             stats = three_days_stats[date_str]
@@ -212,34 +307,41 @@ class TaskSummarizer:
 
             # 累计总数
             total_tasks += stats.get('total', 0)
+            total_xp += stats.get('xp', 0)
+            total_tomatoes += stats.get('tomatoes', 0)
             total_work_hours += stats.get('actual_work_hours', 0)
             total_sleep_hours += stats.get('sleep_hours', 0)
             total_entertainment_hours += stats.get('entertainment_hours', 0)
-            total_xp += stats.get('xp', 0)
             total_mit += stats.get('mit_count', 0)
 
-            # 格式化单日摘要
+            # ✅ 格式化单日摘要，包含番茄和效率数据
             day_summary = f"""
-    【{date_str} {weekday}】
-    • 完成任务：{stats.get('total', 0)}个
-    • 工作时段：{stats.get('work_start', '无')} - {stats.get('work_end', '无')}
-    • 实际工作：{stats.get('actual_work_hours', 0)}小时（不含睡眠）
-    • 睡眠时间：{stats.get('sleep_hours', 0)}小时
-    • 娱乐时间：{stats.get('entertainment_hours', 0)}小时
-    • 获得XP：{stats.get('xp', 0)}点
-    • MIT完成：{stats.get('mit_count', 0)}个
-    • 效率指标：{stats.get('xp_per_hour', 0)} XP/小时"""
+【{date_str} {weekday}】
+• 完成任务：{stats.get('total', 0)}个
+• 工作时段：{stats.get('work_start', '无')} - {stats.get('work_end', '无')}
+• 实际工作：{stats.get('actual_work_hours', 0)}小时（不含睡眠）
+• 睡眠时间：{stats.get('sleep_hours', 0)}小时
+• 娱乐时间：{stats.get('entertainment_hours', 0)}小时
+• 获得XP：{stats.get('xp', 0)}点
+• 番茄数：{stats.get('tomatoes', 0)}个
+• MIT完成：{stats.get('mit_count', 0)}个
+• 效率指标：{stats.get('xp_per_tomato', 0)} XP/番茄"""
+
             days_summary_lines.append(day_summary)
 
         # 计算平均值
         avg_work = total_work_hours / 3 if len(sorted_dates) > 0 else 0
         avg_sleep = total_sleep_hours / 3 if len(sorted_dates) > 0 else 0
         avg_entertainment = total_entertainment_hours / 3 if len(sorted_dates) > 0 else 0
+        avg_xp_per_tomato = round(total_xp / total_tomatoes, 2) if total_tomatoes > 0 else 0
 
-        # ✅ 第二步：使用 .format() 填充所有占位符
+        # 填充模板
         prompt = template.format(
             days_summary=''.join(days_summary_lines),
             total_tasks=total_tasks,
+            total_xp=total_xp,
+            total_tomatoes=total_tomatoes,
+            avg_xp_per_tomato=avg_xp_per_tomato,
             total_work_hours=total_work_hours,
             avg_work=avg_work,
             total_sleep_hours=total_sleep_hours,
@@ -251,9 +353,6 @@ class TaskSummarizer:
 
         return prompt
 
-    # --------------------------------------------------------------------------
-    # 私有辅助方法
-    # --------------------------------------------------------------------------
     def _load_template(self, period: str) -> str:
         """加载提示词模板"""
         template_file = os.path.join(self.templates_dir, f"{period}_prompt.txt")
@@ -263,10 +362,31 @@ class TaskSummarizer:
         return self._get_default_template(period)
 
     def _get_default_template(self, period: str) -> str:
-        """获取默认模板（仅用于日报）"""
-        if period == 'daily':
-            return "# Daily Review\n..."  # 返回您的默认日报模板
-        return "请为 {period} 撰写一份报告。"  # 为其他类型提供一个极简的默认值
+        """获取默认模板"""
+        period_map = {
+            "daily": ("今天", "明天", "日"),
+            "weekly": ("本周", "下周", "周"),
+            "monthly": ("本月", "下月", "月"),
+            "three_days": ("三天", "接下来", "趋势")
+        }
+
+        current, next_period, unit = period_map.get(period, ("今天", "明天", "日"))
+
+        return f"""# {period.title()} Review
+已完成任务 {{total}} 个，分类分布：{{categories}}
+获得 XP {{xp}}，获得番茄数 {{tomatoes}} 个
+效率指标：{{xp_per_tomato}} XP/番茄
+MIT 任务 {{mit_count}} 个
+
+## 任务清单
+{{task_list}}
+
+请用中文输出，要求简洁实用：
+1. **{current}亮点** - 总结 3 个主要成就
+2. **改进空间** - 指出 1 个最需要优化的方面  
+3. **{next_period}行动** - 提供 3 条具体可执行的建议
+
+注意：回复字数控制在 300 字以内，重点突出可操作性。"""
 
     def _merge_overlapping_periods(self, periods: List[Tuple[datetime, datetime]]) -> List[Tuple[datetime, datetime]]:
         """合并重叠的时间段"""
@@ -282,4 +402,13 @@ class TaskSummarizer:
 
     def _empty_trend_stats(self) -> Dict:
         """返回三日报告所需的空统计字典"""
-        return {"total": 0, "xp": 0, "mit_count": 0, "actual_work_hours": 0, "sleep_hours": 0, "entertainment_hours": 0}
+        return {
+            "total": 0,
+            "xp": 0,
+            "tomatoes": 0,
+            "xp_per_tomato": 0,
+            "mit_count": 0,
+            "actual_work_hours": 0,
+            "sleep_hours": 0,
+            "entertainment_hours": 0
+        }
