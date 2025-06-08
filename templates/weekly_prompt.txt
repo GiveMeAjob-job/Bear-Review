@@ -6,7 +6,7 @@
 - 总任务数: {total}
 - 总XP: {xp}
 - 总番茄数: {tomatoes}
-- 平均效率 (XP/番茄): {xp_per_tomato} ({efficiency_label})
+- 平均效率 (XP/番茄): {xp_per_tomato}
 - MIT任务完成数: {mit_count}
 
 【分类统计】
