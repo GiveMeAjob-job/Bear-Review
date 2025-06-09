@@ -70,8 +70,8 @@ class Notifier:
                 full_message = clean_message
 
             # 限制消息长度（Telegram 限制 4096 字符）
-            if len(full_message) > 4000:
-                full_message = full_message[:3997] + "..."
+            if len(full_message) > 8000:
+                full_message = full_message[:7997] + "..."
 
             url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
 
