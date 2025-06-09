@@ -49,8 +49,8 @@ class LLMClient:
     def ask_llm(
         self,
         prompt: str,
-        max_tokens: int = 800,
-        temperature: float = 0.7,
+        max_tokens: int = 8000,
+        temperature: float = 0.8,
     ) -> str:
         system_msg = (
             "你是一个专业的个人效率助手，善于总结任务完成情况并给出实用建议。"
