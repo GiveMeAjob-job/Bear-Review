@@ -1,2 +1,11 @@
 [tool.ruff]
 line-length = 100
+
+[project]
+name = "task-master-ai"
+version = "0.2.0"
+dependencies = [
+    "celery",
+    "tiktoken",
+    "structlog",
+]
