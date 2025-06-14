@@ -4,6 +4,14 @@ requests>=2.31.0
 python-dotenv>=1.0.0
 pytz>=2023.3
 
+# Phase2 新增依赖
+celery[redis]>=5.3
+tiktoken>=0.5.1
+httpx>=0.25
+pydantic-settings>=2.2
+structlog>=24.1
+Jinja2>=3.1
+
 # 可选依赖（用于测试）
 pytest>=7.4.0
 pytest-mock>=3.11.0
