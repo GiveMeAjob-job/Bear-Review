@@ -176,6 +176,21 @@ pytest tests/ -v
 - 任务查询结果
 - AI 调用状态  
 - 通知发送结果
+## Import Tasks to GitHub Project
+
+项目提供 `scripts/import_tasks_to_project.py` 脚本，可将 `tasks_phase1.yml` 中的任务批量创建为 Issue 并加入指定的 Project 列，便于集中管理。
+
+### 使用方法
+1. 准备 GitHub Token 并设置环境变量 `GITHUB_TOKEN`
+2. 设置 `GITHUB_REPO`（例如 `my-org/my-repo`）
+3. 设置 `GITHUB_COLUMN_ID` 为目标 Project 列 ID
+4. 运行
+
+```bash
+python scripts/import_tasks_to_project.py tasks_phase1.yml
+```
+
+
 
 ## 🤝 贡献指南
 
