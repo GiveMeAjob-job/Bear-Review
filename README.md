@@ -5,6 +5,7 @@
 [![Daily Review](https://github.com/yourusername/task-master-ai/actions/workflows/daily.yml/badge.svg)](https://github.com/yourusername/task-master-ai/actions/workflows/daily.yml)
 [![Weekly Review](https://github.com/yourusername/task-master-ai/actions/workflows/weekly.yml/badge.svg)](https://github.com/yourusername/task-master-ai/actions/workflows/weekly.yml)
 [![Monthly Review](https://github.com/yourusername/task-master-ai/actions/workflows/monthly.yml/badge.svg)](https://github.com/yourusername/task-master-ai/actions/workflows/monthly.yml)
+[![CI](https://github.com/yourusername/task-master-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/task-master-ai/actions/workflows/ci.yml)
 
 ## ✨ 核心特性
 
@@ -82,6 +83,17 @@ cd task-master-ai
 - **日报**: 每天 23:30 UTC (北京时间 07:30)
 - **周报**: 每周一 00:00 UTC (北京时间 08:00)  
 - **月报**: 每月1号 01:00 UTC (北京时间 09:00)
+
+### 本地一键启动
+```bash
+git clone https://github.com/yourusername/task-master-ai.git
+cd task-master-ai
+pip install -r requirements.txt
+cp .env.example .env
+# 编辑 .env 填入密钥
+python -m src.main --period daily --dry-run
+```
+
 
 ## 🎯 使用示例
 
