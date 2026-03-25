@@ -52,6 +52,8 @@ logs/
 .env.local
 .env.development
 config.local.json
+.bear_review/focus_profile.json
+.bear_review/review_memory.json
 
 # OS
 .DS_Store

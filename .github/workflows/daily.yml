@@ -1,102 +1,75 @@
-# .github/workflows/daily.yml - 最终版：每日自动生成日报 + 三日报告
-
-name: Daily & Trend Reports
+name: Daily Review
 
 on:
   schedule:
-    # 每天在您选择的固定时间自动运行
-    - cron: '0 4 * * *'  # UTC 时间，可自行调整
+    - cron: "0 4 * * *"
   workflow_dispatch:
     inputs:
       report_type:
-        description: '报告类型 (仅手动触发时有效)'
+        description: "报告类型"
         type: choice
-        default: 'yesterday'
+        default: "yesterday"
         options:
-          - 'yesterday'
-          - 'three-days'
-          - 'today'
+          - "yesterday"
+          - "today"
+          - "three-days"
       dry_run:
-        description: '试运行（不发送通知）'
+        description: "试运行（不发送通知）"
         type: boolean
         default: false
       verbose:
-        description: '详细日志'
+        description: "详细日志"
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 jobs:
-  daily-review:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20 # 运行两个报告，可以适当延长超时
+  scheduled-yesterday:
+    if: github.event_name == 'schedule'
+    uses: ./.github/workflows/report-runner.yml
+    with:
+      report_name: Daily Review
+      period: daily
+      yesterday: true
+      notification_mode: smart
+      artifact_name: daily-review
+    secrets: inherit
 
-    steps:
-      # 1️⃣ & 2️⃣ & 3️⃣: Checkout, Setup Python, Install dependencies (不变)
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-      - run: pip install -r requirements.txt
+  manual-yesterday:
+    if: github.event_name == 'workflow_dispatch' && inputs.report_type == 'yesterday'
+    uses: ./.github/workflows/report-runner.yml
+    with:
+      report_name: Daily Review
+      period: daily
+      yesterday: true
+      dry_run: ${{ inputs.dry_run }}
+      verbose: ${{ inputs.verbose }}
+      notification_mode: smart
+      artifact_name: daily-review-manual-yesterday
+    secrets: inherit
 
-      # 4️⃣: Debug env (不变)
-      - name: Debug env
-        if: github.event.inputs.verbose == 'true'
-        run: |
-          echo "NOTION_DB_ID=$NOTION_DB_ID"
-          echo "TOK_LEN=${#NOTION_TOKEN}"
+  manual-today:
+    if: github.event_name == 'workflow_dispatch' && inputs.report_type == 'today'
+    uses: ./.github/workflows/report-runner.yml
+    with:
+      report_name: Daily Review (Today)
+      period: daily
+      dry_run: ${{ inputs.dry_run }}
+      verbose: ${{ inputs.verbose }}
+      notification_mode: smart
+      artifact_name: daily-review-manual-today
+    secrets: inherit
 
-      # 5️⃣: 执行脚本 (核心修改)
-      - name: Run Reports
-        env:
-          # --- 所有环境变量不变 ---
-          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-          NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
-          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
-          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
-          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
-          LLM_MODEL: deepseek-chat
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_BOT_TOKEN_2: ${{ secrets.TELEGRAM_BOT_TOKEN_2 }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TELEGRAM_CHAT_ID_2: ${{ secrets.TELEGRAM_CHAT_ID_2 }}
-          EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
-          EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          TIMEZONE: ${{ secrets.TIMEZONE }}
-        run: |
-          # --- ✅ 核心修改逻辑 ---
-          # 判断当前工作流是由 'schedule' (定时) 还是 'workflow_dispatch' (手动) 触发的
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            # --- 如果是定时自动触发 ---
-            echo "⏰ 定时任务触发，将生成日报和三日报告..."
-            
-            echo -e "\n--- (1/2) 生成昨天的日报 ---"
-            python -m src.main --period daily --yesterday --verbose
-            
-            echo -e "\n--- (2/2) 生成三日趋势分析 ---"
-            python -m src.main --period three-days --verbose
-
-          else
-            # --- 如果是手动触发 ---
-            echo "👨‍💻 手动触发，将根据输入生成指定报告..."
-            REPORT_TYPE="${{ github.event.inputs.report_type }}"
-            echo "📊 报告类型: $REPORT_TYPE"
-            
-            # 使用您原来的 case 语句，逻辑完全不变
-            case "$REPORT_TYPE" in
-              "three-days")
-                python -m src.main --period three-days ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
-                ;;
-              "yesterday")
-                python -m src.main --period daily --yesterday ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
-                ;;
-              "today")
-                python -m src.main --period daily ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
-                ;;
-              *)
-                echo "❌ 未知的报告类型: $REPORT_TYPE"
-                exit 1
-                ;;
-            esac
-          fi
+  manual-three-day-trend:
+    if: github.event_name == 'workflow_dispatch' && inputs.report_type == 'three-days'
+    uses: ./.github/workflows/report-runner.yml
+    with:
+      report_name: Three-Day Trend
+      period: three-days
+      dry_run: ${{ inputs.dry_run }}
+      verbose: ${{ inputs.verbose }}
+      notification_mode: full
+      artifact_name: three-day-trend
+    secrets: inherit

@@ -1,0 +1,44 @@
+{
+  "current_focus": "请在这里写当前阶段真正有效的主题，例如：把短视频业务跑通，或建立稳定的训练节奏。",
+  "current_stage": "请写当前所处阶段，例如：从考试阶段切到内容系统建设期，或处于恢复期。",
+  "coaching_mode": "build",
+  "coaching_notes": "如果现在更需要恢复节奏，可以切 recovery / stabilize；如果处于明确窗口期，再切 sprint。",
+  "auto_dormancy": {
+    "enabled": true,
+    "idle_after_days": 10,
+    "reminder_interval_days": 5,
+    "restart_message": "如果你准备好了，先完成一个最小任务，让系统重新启动起来。"
+  },
+  "active_priorities": [
+    {
+      "name": "每周稳定发布 3 条视频",
+      "keywords": ["视频", "剪辑", "发布", "脚本"]
+    },
+    {
+      "name": "维持恢复期训练节奏",
+      "keywords": ["训练", "恢复", "拉伸", "走路"]
+    }
+  ],
+  "active_projects": [
+    {
+      "name": "内容发布系统",
+      "keywords": ["视频", "封面", "选题", "素材"]
+    }
+  ],
+  "constraints": [
+    "脚伤恢复期，运动建议应避免高冲击",
+    "如果某类目标已经完成，不要继续把它当作当前主线"
+  ],
+  "operating_rules": [
+    "建议应优先围绕最近有任务证据支持的 active_priorities 给出",
+    "如果当前真实任务数据和焦点档案冲突，优先相信真实任务数据"
+  ],
+  "completed_items": [
+    "示例：D333",
+    "示例：CPA"
+  ],
+  "notes": "这里可以写最近阶段变化，例如：最近重点转向内容产出而不是考试准备。",
+  "last_updated": "2026-03-24",
+  "stale_after_days": 14,
+  "evidence_window_days": 21
+}

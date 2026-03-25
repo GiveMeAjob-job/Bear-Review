@@ -1,0 +1,242 @@
+name: Report Runner
+
+on:
+  workflow_call:
+    inputs:
+      report_name:
+        description: Human-readable report name
+        required: true
+        type: string
+      period:
+        description: Report period passed to the CLI
+        required: true
+        type: string
+      yesterday:
+        description: Generate the daily report for yesterday
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: Skip notifications
+        required: false
+        type: boolean
+        default: false
+      verbose:
+        description: Enable verbose logging
+        required: false
+        type: boolean
+        default: false
+      notification_mode:
+        description: Notification delivery mode
+        required: false
+        type: string
+        default: summary
+      artifact_name:
+        description: Uploaded artifact name
+        required: false
+        type: string
+        default: bear-review-report
+      publish_summary:
+        description: Publish preview to GitHub Actions summary
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  run-report:
+    name: ${{ inputs.report_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: bear-review-${{ github.workflow }}-${{ inputs.period }}-${{ inputs.yesterday }}
+      cancel-in-progress: false
+    env:
+      PYTHONUNBUFFERED: "1"
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
+      DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
+      OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
+      LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+      LLM_MODEL: ${{ secrets.LLM_MODEL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_BOT_TOKEN_2: ${{ secrets.TELEGRAM_BOT_TOKEN_2 }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_CHAT_ID_2: ${{ secrets.TELEGRAM_CHAT_ID_2 }}
+      EMAIL_SMTP_SERVER: ${{ secrets.EMAIL_SMTP_SERVER }}
+      EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
+      EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+      TIMEZONE: ${{ secrets.TIMEZONE }}
+      NOTIFICATION_MODE: ${{ inputs.notification_mode }}
+      NOTIFICATION_TITLE_PREFIX: Bear Review
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --no-cache-dir -r requirements.txt
+
+      - name: Preflight validation
+        run: |
+          python -m compileall src scripts
+          python - <<'PY'
+          from src.config import Config
+
+          cfg = Config.from_env()
+          cfg.validate_runtime()
+          print(f"Runtime config OK: provider={cfg.llm_provider}, timezone={cfg.timezone}, notifications={cfg.notification_mode}")
+          PY
+
+      - name: Prepare report directory
+        run: mkdir -p build/reports
+
+      - name: Restore review memory cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .bear_review/review_memory.json
+          key: bear-review-memory-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            bear-review-memory-${{ github.ref_name }}-
+            bear-review-memory-
+
+      - name: Restore focus profile cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .bear_review/focus_profile.json
+          key: bear-review-focus-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            bear-review-focus-${{ github.ref_name }}-
+            bear-review-focus-
+
+      - name: Restore engine state cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .bear_review/engine_state.json
+          key: bear-review-engine-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            bear-review-engine-${{ github.ref_name }}-
+            bear-review-engine-
+
+      - name: Generate report
+        run: |
+          args=(
+            --period "${{ inputs.period }}"
+            --notification-mode "${{ inputs.notification_mode }}"
+            --output-file build/reports/report.txt
+            --preview-file build/reports/preview.txt
+            --decision-file build/reports/decision.txt
+            --metadata-file build/reports/metadata.json
+            --memory-file .bear_review/review_memory.json
+            --focus-profile-file .bear_review/focus_profile.json
+            --engine-state-file .bear_review/engine_state.json
+            --init-focus-profile
+          )
+
+          if [ "${{ inputs.yesterday }}" = "true" ]; then
+            args+=(--yesterday)
+          fi
+
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+
+          if [ "${{ inputs.verbose }}" = "true" ]; then
+            args+=(--verbose)
+          fi
+
+          python -m src.main "${args[@]}"
+
+      - name: Publish workflow summary
+        if: ${{ always() && inputs.publish_summary }}
+        run: |
+          {
+            echo "## ${{ inputs.report_name }}"
+            echo
+
+            if [ -f build/reports/metadata.json ]; then
+              python - <<'PY'
+              import json
+              from pathlib import Path
+
+              payload = json.loads(Path("build/reports/metadata.json").read_text(encoding="utf-8"))
+              stats = payload.get("stats") or {}
+              signals = payload.get("signals") or {}
+              anomalies = signals.get("anomalies") or []
+              dormancy = signals.get("dormancy") or {}
+              print(f"- Period: `{payload.get('period', 'unknown')}`")
+              print(f"- Title: `{payload.get('title', 'unknown')}`")
+              print(f"- Notification Mode: `{payload.get('notification_mode', 'unknown')}`")
+              print(f"- Dry Run: `{payload.get('dry_run', False)}`")
+              print(f"- Tasks: `{stats.get('total', 0)}`")
+              print(f"- XP: `{stats.get('xp', 0)}`")
+              print(f"- MIT: `{stats.get('mit_count', 0)}`")
+              print(f"- Smart Notify: `{signals.get('should_notify', True)}`")
+              if dormancy:
+                  print(f"- Dormant: `{dormancy.get('is_dormant', False)}`")
+                  if dormancy.get("reminder_due") is not None:
+                      print(f"- Restart Nudge Due: `{dormancy.get('reminder_due', False)}`")
+              if anomalies:
+                  print(f"- Top Anomaly: `{anomalies[0].get('summary', 'n/a')}`")
+              PY
+            fi
+
+            echo
+            echo "### Decision Card"
+            echo
+
+            if [ -f build/reports/decision.txt ]; then
+              cat build/reports/decision.txt
+            else
+              echo "_Decision card unavailable_"
+            fi
+
+            echo
+            echo "### Preview"
+            echo
+
+            if [ -f build/reports/preview.txt ]; then
+              cat build/reports/preview.txt
+            else
+              echo "_Preview unavailable_"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: |
+            build/reports
+            .bear_review/engine_state.json
+            .bear_review/focus_profile.json
+            .bear_review/review_memory.json
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Save review memory cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .bear_review/review_memory.json
+          key: bear-review-memory-${{ github.ref_name }}-${{ github.run_id }}
+
+      - name: Save focus profile cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .bear_review/focus_profile.json
+          key: bear-review-focus-${{ github.ref_name }}-${{ github.run_id }}
+
+      - name: Save engine state cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .bear_review/engine_state.json
+          key: bear-review-engine-${{ github.ref_name }}-${{ github.run_id }}

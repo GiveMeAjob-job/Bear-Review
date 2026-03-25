@@ -1,219 +1,411 @@
-# 🤖 Task Master AI - 智能任务总结系统
+# Bear Review
 
-> 基于 Notion + GitHub Actions + AI 的自动化个人效率复盘工具
+Bear Review 是一个代码优先、SQLite 优先的个人执行与复盘系统。
 
-[![Daily Review](https://github.com/yourusername/task-master-ai/actions/workflows/daily.yml/badge.svg)](https://github.com/yourusername/task-master-ai/actions/workflows/daily.yml)
-[![Weekly Review](https://github.com/yourusername/task-master-ai/actions/workflows/weekly.yml/badge.svg)](https://github.com/yourusername/task-master-ai/actions/workflows/weekly.yml)
-[![Monthly Review](https://github.com/yourusername/task-master-ai/actions/workflows/monthly.yml/badge.svg)](https://github.com/yourusername/task-master-ai/actions/workflows/monthly.yml)
+它不再把核心结构绑在 Notion 这类外部工具上，而是把任务、状态、复盘和通知策略都收回到代码里，让 AI 可以直接帮你改流程、改数据结构、改产品行为。
 
-## ✨ 核心特性
+## 它现在解决什么问题
 
-- **🔄 全自动运行** - GitHub Actions 定时触发，无需人工干预
-- **📊 智能分析** - AI 驱动的任务完成度分析和改进建议
-- **📱 多渠道推送** - 支持 Telegram、邮件等多种通知方式
-- **🎯 多周期复盘** - 日报、周报、月报三级复盘体系
-- **🛠️ 高度可定制** - 灵活的模板系统和配置选项
-- **🚀 开箱即用** - 最小化配置，快速部署
+- 任务记录要足够轻，不能为了记一条完成事项先打开一堆工具
+- 复盘不能每天失忆，必须带着上下文持续跟进
+- 通知不能变成噪音，应该只在值得打断的时候出现
+- 当前主线、教练模式、熄火状态这些“系统脑子”必须和任务放在一起管理
 
-## 🏗️ 系统架构
+## 当前版本的核心形态
 
-```mermaid
-graph TD
-    A[GitHub Actions 定时器] --> B[Python 脚本]
-    B --> C[Notion API 查询]
-    C --> D[任务数据聚合]
-    D --> E[AI 分析总结]
-    E --> F[Telegram 通知]
-    E --> G[邮件推送]
-    E --> H[控制台输出]
-    
-    I[Notion Task Master DB] --> C
-    J[DeepSeek/OpenAI API] --> E
-```
+- `SQLite` 是推荐的主任务源
+- `Notion` 仍然可用，但只是可选适配器
+- `python -m src.capture serve` 已经是统一首页
+- 首页同时承担：
+  - 快速记录完成任务
+  - 查看最近任务
+  - 查看系统状态
+  - 编辑当前主线 / 当前阶段 / 教练模式
+- 复盘输出不再只有一篇长文，还会生成：
+  - `report`
+  - `preview`
+  - `decision card`
+  - `metadata`
 
-## 📋 前置要求
+## 统一首页
 
-### Notion 设置
-1. 创建 Notion 集成并获取 Token
-2. 设置 Task Master 数据库，包含以下字段：
-   - **任务名称** (Title)
-   - **分类** (Select): Work/Study/Health/Life 等
-   - **优先级** (Select): MIT/次要/随缘
-   - **状态** (Select): Todo/Doing/Done/Snoozed
-   - **计划日期** (Date with time)
-   - **估时(min)** (Number)
-
-### API 密钥
-- Notion Integration Token
-- DeepSeek API Key 或 OpenAI API Key
-- （可选）Telegram Bot Token
-- （可选）邮箱 SMTP 配置
-
-## 🚀 快速开始
-
-### 1. Fork 并克隆仓库
+启动本地首页：
 
 ```bash
-git clone https://github.com/yourusername/task-master-ai.git
-cd task-master-ai
+python -m src.capture serve --host 127.0.0.1 --port 8765
 ```
 
-### 2. 设置 GitHub Secrets
+然后打开：
 
-在仓库的 `Settings → Secrets and variables → Actions` 中添加：
-
-| Secret 名称 | 必需 | 说明 |
-|------------|------|------|
-| `NOTION_TOKEN` | ✅ | Notion 集成令牌 |
-| `NOTION_DB_ID` | ✅ | Task Master 数据库 ID |
-| `DEEPSEEK_KEY` | ✅ | DeepSeek API 密钥 |
-| `TELEGRAM_BOT_TOKEN` | ❌ | Telegram 机器人令牌 |
-| `TELEGRAM_CHAT_ID` | ❌ | Telegram 聊天 ID |
-| `EMAIL_SMTP_SERVER` | ❌ | 邮件 SMTP 服务器 |
-| `EMAIL_USERNAME` | ❌ | 邮件用户名 |
-| `EMAIL_PASSWORD` | ❌ | 邮件密码/应用密码 |
-
-### 3. 手动测试运行
-
-在 GitHub Actions 页面，选择对应的 workflow 并点击 "Run workflow" 进行测试。
-
-### 4. 自动化运行时间
-
-- **日报**: 每天 23:30 UTC (北京时间 07:30)
-- **周报**: 每周一 00:00 UTC (北京时间 08:00)  
-- **月报**: 每月1号 01:00 UTC (北京时间 09:00)
-
-## 🎯 使用示例
-
-### 日报输出示例
-
-```markdown
-# Daily Review
-已完成任务 8 个，分类分布：Work:5, Health:2, Study:1，获得 XP 65，其中 MIT 任务 3 个。
-
-## 任务清单
-- 完成产品需求文档
-- 参加团队会议
-- 健身房锻炼
-- 阅读技术文章
-- ...
-
-**今日亮点**
-1. 高效完成3个MIT任务，工作专注度显著提升
-2. 坚持健身计划，运动习惯逐步养成
-3. 学习新技术栈，知识储备持续扩充
-
-**改进空间**
-会议时间管理需要优化，部分讨论偏离主题导致效率下降
-
-**明日行动**  
-1. 优先处理客户反馈，确保产品迭代进度
-2. 制定会议议程模板，提升沟通效率
-3. 安排深度工作时间块，减少打断干扰
+```text
+http://127.0.0.1:8765
 ```
 
-## ⚙️ 高级配置
-
-### 自定义提示词模板
-
-在 `templates/` 目录下修改对应的提示词文件：
-- `daily_prompt.txt` - 日报模板
-- `weekly_prompt.txt` - 周报模板  
-- `monthly_prompt.txt` - 月报模板
-
-### 本地开发运行
+如果想让手机访问同一局域网下的服务：
 
 ```bash
-# 安装依赖
+python -m src.capture serve --host 0.0.0.0 --port 8765
+```
+
+首页现在包含：
+
+- 当前主线
+- 当前阶段
+- 当前教练模式
+- 当前建议动作
+- 系统状态
+- 最近 7 天完成情况
+- 手工别名数量
+- 焦点控制台
+- 快速录入表单
+- 最近任务列表
+- 手工别名、自动别名、模板复用、变体起点
+
+这意味着你现在不需要再手改 `JSON` 才能更新主线，也不需要打开 Notion 才能记录任务。
+
+## 快速开始
+
+### 1. 安装依赖
+
+要求：
+
+- Python `3.9+`
+
+安装：
+
+```bash
 pip install -r requirements.txt
-
-# 复制环境变量模板
-cp .env.example .env
-
-# 编辑 .env 文件，填入你的配置
-vim .env
-
-# 运行测试
-python -m src.main --period daily --dry-run --verbose
 ```
 
-### 运行测试套件
+### 2. 配置环境变量
+
+最小可用配置：
 
 ```bash
-pip install pytest pytest-mock
-pytest tests/ -v
+export TASK_SOURCE=sqlite
+export SQLITE_DB_PATH=.bear_review/tasks.db
+export DEEPSEEK_KEY=your_key
 ```
 
-## 📊 数据流程
-
-1. **数据采集**: 从 Notion 数据库查询指定时间段的已完成任务
-2. **数据处理**: 统计任务数量、分类分布、XP 值、MIT 完成情况
-3. **AI 分析**: 将结构化数据发送给 LLM，生成个性化总结和建议
-4. **结果推送**: 通过多种渠道将分析结果推送给用户
-
-## 🔧 故障排查
-
-### 常见问题
-
-**Q: GitHub Actions 显示 "Notion API 调用失败"**
-- 检查 NOTION_TOKEN 是否正确设置
-- 确认集成权限已正确配置
-- 验证数据库 ID 格式正确
-
-**Q: 没有收到通知推送**  
-- 检查对应的 Secret 配置是否完整
-- 查看 Actions 日志中的错误信息
-- 使用 `--dry-run` 模式测试
-
-**Q: AI 总结质量不佳**
-- 调整 `templates/` 中的提示词模板
-- 考虑切换到 OpenAI GPT-4 模型
-- 检查任务数据的完整性
-
-### 日志查看
-
-在 GitHub Actions 的运行日志中可以看到详细的执行信息：
-- 任务查询结果
-- AI 调用状态  
-- 通知发送结果
-## Import Tasks to GitHub Project
-
-项目提供 `scripts/import_tasks_to_project.py` 脚本，可将 `tasks_phase1.yml` 中的任务批量创建为 Issue 并加入指定的 Project 列，便于集中管理。
-
-### 使用方法
-1. 准备 GitHub Token 并设置环境变量 `GITHUB_TOKEN`
-2. 设置 `GITHUB_REPO`（例如 `my-org/my-repo`）
-3. 设置 `GITHUB_COLUMN_ID` 为目标 Project 列 ID
-4. 运行
+如果你更想用 OpenAI：
 
 ```bash
-python scripts/import_tasks_to_project.py tasks_phase1.yml
+export TASK_SOURCE=sqlite
+export SQLITE_DB_PATH=.bear_review/tasks.db
+export LLM_PROVIDER=openai
+export OPENAI_KEY=your_key
 ```
 
+常用可选项：
 
+```bash
+export LLM_MODEL=deepseek-chat
+export TIMEZONE=America/Toronto
+export NOTIFICATION_MODE=smart
+export NOTIFICATION_TITLE_PREFIX="Bear Review"
+export TELEGRAM_BOT_TOKEN=xxx
+export TELEGRAM_CHAT_ID=xxx
+```
 
-## 🤝 贡献指南
+### 3. 先记一条完成任务
 
-欢迎提交 Issue 和 Pull Request！
+```bash
+python -m src.capture done \
+  "剪完第一条视频" \
+  --category Content \
+  --priority MIT \
+  --minutes 45 \
+  --tomatoes 2
+```
 
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m 'Add amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 创建 Pull Request
+查看最近任务：
 
-## 📄 许可证
+```bash
+python -m src.capture recent --limit 10
+```
 
-本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
+### 4. 生成一轮复盘
 
-## 🙏 致谢
+日报：
 
-- [Notion API](https://developers.notion.com/) - 强大的数据管理平台
-- [DeepSeek](https://www.deepseek.com/) - 高质量的 AI 模型服务
-- [GitHub Actions](https://github.com/features/actions) - 可靠的 CI/CD 平台
+```bash
+TASK_SOURCE=sqlite python -m src.main --period daily --dry-run
+```
 
-## 📞 支持
+昨天日报：
 
-如果这个项目对你有帮助，请给个 ⭐ Star！
+```bash
+TASK_SOURCE=sqlite python -m src.main --period daily --yesterday --dry-run
+```
 
-有问题或建议？欢迎 [提交 Issue](https://github.com/yourusername/task-master-ai/issues/new)。
+三日趋势：
+
+```bash
+TASK_SOURCE=sqlite python -m src.main --period three-days --dry-run
+```
+
+周报：
+
+```bash
+TASK_SOURCE=sqlite python -m src.main --period weekly --notification-mode full
+```
+
+导出完整产物：
+
+```bash
+TASK_SOURCE=sqlite python -m src.main \
+  --period daily \
+  --dry-run \
+  --output-file build/reports/report.txt \
+  --preview-file build/reports/preview.txt \
+  --decision-file build/reports/decision.txt \
+  --metadata-file build/reports/metadata.json
+```
+
+## 任务源
+
+### SQLite，推荐
+
+这是当前项目的主路径。
+
+适合你在这些情况下使用：
+
+- 希望 AI 直接修改数据模型和工作流
+- 不想把核心结构放在外部工具里
+- 想用本地网页或命令行快速记完成项
+- 想让任务、状态、记忆、焦点档案放在一起
+
+默认数据库路径：
+
+```text
+.bear_review/tasks.db
+```
+
+### Notion，可选
+
+如果你仍然想继续用 Notion：
+
+```bash
+export TASK_SOURCE=notion
+export NOTION_TOKEN=your_token
+export NOTION_DB_ID=your_database_id
+export DEEPSEEK_KEY=your_key
+```
+
+然后运行：
+
+```bash
+python -m src.main --period daily --yesterday --dry-run --init-focus-profile
+```
+
+Notion 现在只负责数据适配，不再决定系统整体架构。
+
+## 统一状态存储
+
+当前项目已经把“系统脑子”也统一进了 SQLite。
+
+当 `TASK_SOURCE=sqlite` 且你没有显式改状态路径时，下面这些状态会和任务一起进同一个数据库：
+
+- `focus_profile`
+- `review_memory`
+- `engine_state`
+
+如果仓库里已有旧的 JSON 状态文件，系统会在第一次使用 SQLite 状态时自动导入：
+
+- `.bear_review/focus_profile.json`
+- `.bear_review/review_memory.json`
+- `.bear_review/engine_state.json`
+
+这一步是迁移，不是强制继续依赖 JSON。
+
+## 复盘引擎
+
+Bear Review 不是单纯的“生成日报”脚本，它现在更像一个有状态的执行校准系统。
+
+### 支持的周期
+
+- `daily`
+- `three-days`
+- `weekly`
+- `monthly`
+
+### 每次运行的标准产物
+
+- `report`：完整正文
+- `preview`：适合通知和 Actions Summary 的短预览
+- `decision card`：当前最重要的判断与下一步动作
+- `metadata`：结构化统计、信号、模式、通知决策
+
+### 干预逻辑
+
+每次生成前，系统会先做这些判断：
+
+- 行动闭环：上次承诺动作这次有没有任务证据
+- 异常检测：MIT、XP、时长、空输出等是否异常
+- 教练模式：`adaptive / recovery / stabilize / build / sprint`
+- 逆境原则：`soldier on`、不要自怜、不要嫉妒、把逆风变成训练、押注少数真正机会
+- 熄火状态：是否应该暂停常规通知，只保留低频重启提醒
+
+### 通知模式
+
+- `disabled`
+  - 只生成，不发送
+- `summary`
+  - 发送摘要
+- `smart`
+  - 先判断值不值得打断，再发决策卡或摘要
+- `full`
+  - 发送完整正文
+
+## 本地录入能力
+
+本地录入页已经不是一个简单表单，而是轻量任务台。
+
+当前支持：
+
+- 记录完成任务
+- 编辑和删除最近任务
+- 常用分类按钮
+- 最近 3 个分类记忆
+- 一键 `MIT`
+- 今天 / 现在开始 / 自动补结束时间
+- 复制上一条时间配置
+- 最近任务复用
+- 以最近任务为变体起点
+- 自动别名
+- 手工别名的新增、载入、编辑、删除
+
+目标是把“记一条完成事项”的摩擦压到足够低。
+
+## 焦点档案、记忆和熄火机制
+
+### 焦点档案
+
+焦点档案决定系统现在该围绕什么来理解你的任务。
+
+它包含：
+
+- `current_focus`
+- `current_stage`
+- `coaching_mode`
+- `coaching_notes`
+- `active_priorities`
+- `active_projects`
+- `completed_items`
+- `auto_dormancy`
+
+### 复盘记忆
+
+复盘记忆让系统不是每次都从零开始。
+
+它会持续保留：
+
+- 最近同周期摘要
+- 高频复盘标签
+- 上一轮跟进动作
+- 关键指标变化
+
+### 自动熄火
+
+当系统发现你一段时间没有新的完成任务时：
+
+- 进入休眠
+- 停止常规通知
+- 按间隔发送低频重启提醒
+- 一旦有新的完成任务，再自动恢复
+
+## CLI 速查
+
+### 录入
+
+```bash
+python -m src.capture --help
+python -m src.capture done "完成事项"
+python -m src.capture recent --limit 10
+python -m src.capture serve
+```
+
+### 复盘
+
+```bash
+python -m src.main --help
+python -m src.main --period daily --dry-run
+python -m src.main --period daily --yesterday --dry-run
+python -m src.main --period weekly --notification-mode full
+python -m src.main --period daily --coaching-mode sprint --dry-run
+```
+
+## GitHub Actions
+
+当前工作流已经分层：
+
+- `ci.yml`
+  - 负责测试和基础检查
+- `report-runner.yml`
+  - 负责统一生成报告、预览、决策卡、元数据和 artifact
+- `daily.yml`
+  - 日报触发与调度
+- `weekly.yml`
+  - 周报触发与调度
+- `monthly.yml`
+  - 月报触发与调度
+
+其中 `daily` 默认更偏保守，优先走 `smart` 模式，尽量减少无效提醒。
+
+## 测试
+
+运行测试：
+
+```bash
+pytest -q
+python -m compileall src tests
+```
+
+当前测试主要覆盖：
+
+- SQLite 任务存储与查询
+- 本地录入命令与网页入口
+- 状态统一存储与 JSON 导入
+- 任务源切换
+- Notion 适配
+- 统计与趋势分析
+- 干预引擎
+- 通知模式
+- 复盘服务编排
+
+## 项目结构
+
+```text
+src/
+  capture.py
+  coaching_modes.py
+  coaching_principles.py
+  config.py
+  engine_state.py
+  focus_profile.py
+  intervention_engine.py
+  llm_client.py
+  main.py
+  models.py
+  notifier.py
+  notion_client.py
+  review_memory.py
+  review_service.py
+  sqlite_state_store.py
+  sqlite_task_store.py
+  summarizer.py
+  task_source.py
+  web_capture.py
+tests/
+.github/workflows/
+templates/
+```
+
+## 设计原则
+
+- 代码是主系统，外部工具只是适配器
+- 本地优先，SQLite 优先
+- 先统一数据和状态，再做 prompt 和通知
+- 先判断值不值得提醒，再发送内容
+- 复盘要有记忆，不要每天重新认识用户一次
+- 录入必须足够轻，否则再好的分析也会失效
