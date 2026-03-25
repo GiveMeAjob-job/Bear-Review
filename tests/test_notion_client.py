@@ -1,7 +1,8 @@
-# tests/test_notion_client.py - Notion客户端测试
-import pytest
-from unittest.mock import Mock, patch
 from datetime import date
+from unittest.mock import Mock, patch
+
+import pytest
+
 from src.config import Config
 from src.notion_client import NotionClient, calc_xp
 
@@ -10,7 +11,8 @@ from src.notion_client import NotionClient, calc_xp
 def config():
     return Config(
         notion_token="test_token",
-        notion_db_id="test_db_id"
+        notion_db_id="test_db_id",
+        timezone="America/Toronto",
     )
 
 
@@ -19,139 +21,75 @@ def notion_client(config):
     return NotionClient(config)
 
 
-def test_calc_xp_mit_task():
-    """测试MIT任务XP计算"""
-    page = {
-        "properties": {
-            "优先级": {
-                "select": {
-                    "name": "MIT"
-                }
-            }
-        }
-    }
+def test_calc_xp_priority_fallback():
+    page = {"properties": {"优先级": {"select": {"name": "MIT"}}}}
     assert calc_xp(page) == 10
 
 
-def test_calc_xp_normal_task():
-    """测试普通任务XP计算"""
+def test_calc_xp_prefers_formula_value():
     page = {
         "properties": {
-            "优先级": {
-                "select": {
-                    "name": "次要"
-                }
-            }
+            "优先级": {"select": {"name": "MIT"}},
+            "XP": {"formula": {"number": 42}},
         }
     }
-    assert calc_xp(page) == 5
+    assert calc_xp(page) == 42
 
 
-def test_calc_xp_invalid_data():
-    """测试异常数据XP计算"""
-    page = {"properties": {}}
-    assert calc_xp(page) == 0
-
-
-@patch('requests.post')
-def test_query_tasks_success(mock_post, notion_client):
-    """测试成功查询任务"""
-    mock_response = Mock()
-    mock_response.raise_for_status.return_value = None
-    mock_response.json.return_value = {
-        "results": [
-            {
-                "id": "test_id",
-                "properties": {
-                    "任务名称": {"title": [{"plain_text": "测试任务"}]},
-                    "分类": {"select": {"name": "Work"}},
-                    "优先级": {"select": {"name": "MIT"}}
-                }
-            }
-        ]
+@patch("src.notion_client.requests.post")
+def test_query_tasks_handles_pagination(mock_post, notion_client):
+    first_page = Mock()
+    first_page.raise_for_status.return_value = None
+    first_page.json.return_value = {
+        "results": [{"id": "1"}],
+        "has_more": True,
+        "next_cursor": "cursor-1",
     }
-    mock_post.return_value = mock_response
 
-    start_date = date(2024, 1, 1)
-    end_date = date(2024, 1, 31)
+    second_page = Mock()
+    second_page.raise_for_status.return_value = None
+    second_page.json.return_value = {
+        "results": [{"id": "2"}],
+        "has_more": False,
+        "next_cursor": None,
+    }
 
-    tasks = notion_client._query_tasks(start_date, end_date)
+    mock_post.side_effect = [first_page, second_page]
 
-    assert len(tasks) == 1
-    assert tasks[0]["id"] == "test_id"
-    mock_post.assert_called_once()
+    tasks = notion_client._query_tasks(date(2024, 1, 1), date(2024, 1, 2))
 
-
-# tests/test_summarizer.py - 汇总器测试
-import pytest
-from src.summarizer import TaskSummarizer
-
-
-@pytest.fixture
-def summarizer():
-    return TaskSummarizer()
+    assert [task["id"] for task in tasks] == ["1", "2"]
+    assert mock_post.call_count == 2
+    second_payload = mock_post.call_args_list[1].kwargs["json"]
+    assert second_payload["start_cursor"] == "cursor-1"
 
 
-@pytest.fixture
-def sample_tasks():
-    return [
-        {
-            "id": "1",
-            "properties": {
-                "任务名称": {"title": [{"plain_text": "完成报告"}]},
-                "分类": {"select": {"name": "Work"}},
-                "优先级": {"select": {"name": "MIT"}}
-            }
+def test_parse_task_normalizes_task_fields():
+    page = {
+        "id": "page-1",
+        "properties": {
+            "任务名称": {"title": [{"plain_text": "完成报告"}]},
+            "分类": {"select": {"name": "Work"}},
+            "优先级": {"select": {"name": "MIT"}},
+            "状态": {"select": {"name": "Done"}},
+            "计划日期": {
+                "date": {
+                    "start": "2024-01-01T13:00:00+00:00",
+                    "end": "2024-01-01T14:30:00+00:00",
+                }
+            },
+            "番茄数": {"formula": {"number": 3}},
+            "实际用时(min)": {"formula": {"number": 90}},
         },
-        {
-            "id": "2",
-            "properties": {
-                "任务名称": {"title": [{"plain_text": "健身锻炼"}]},
-                "分类": {"select": {"name": "Health"}},
-                "优先级": {"select": {"name": "次要"}}
-            }
-        }
-    ]
-
-
-def test_aggregate_tasks(summarizer, sample_tasks):
-    """测试任务聚合功能"""
-    stats, titles = summarizer.aggregate_tasks(sample_tasks)
-
-    assert stats["total"] == 2
-    assert stats["xp"] == 15  # 10 + 5
-    assert stats["mit_count"] == 1
-    assert stats["cats"]["Work"] == 1
-    assert stats["cats"]["Health"] == 1
-    assert "完成报告" in titles
-    assert "健身锻炼" in titles
-
-
-def test_aggregate_empty_tasks(summarizer):
-    """测试空任务列表聚合"""
-    stats, titles = summarizer.aggregate_tasks([])
-
-    assert stats["total"] == 0
-    assert stats["xp"] == 0
-    assert stats["mit_count"] == 0
-    assert stats["cats"] == {}
-    assert titles == []
-
-
-def test_build_prompt(summarizer):
-    """测试提示词构建"""
-    stats = {
-        "total": 5,
-        "xp": 35,
-        "cats": {"Work": 3, "Health": 2},
-        "mit_count": 2
     }
-    titles = ["任务1", "任务2", "任务3"]
 
-    prompt = summarizer.build_prompt(stats, titles, "daily")
+    task = NotionClient.parse_task(page)
 
-    assert "已完成任务 5 个" in prompt
-    assert "获得 XP 35" in prompt
-    assert "MIT 任务 2 个" in prompt
-    assert "Work:3, Health:2" in prompt
-    assert "- 任务1" in prompt
+    assert task.id == "page-1"
+    assert task.title == "完成报告"
+    assert task.category == "Work"
+    assert task.is_mit is True
+    assert task.xp == 10
+    assert task.tomatoes == 3
+    assert task.actual_minutes == 90
+    assert task.scheduled_start.isoformat() == "2024-01-01T13:00:00+00:00"

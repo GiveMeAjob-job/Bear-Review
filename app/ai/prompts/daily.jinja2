@@ -1,0 +1,4 @@
+请阅读以下任务列表并生成 {{period}} 汇总报告：
+{% for t in tasks %}
+- {{t.title}} (状态: {{t.status}}, XP={{t.xp}})
+{% endfor %}
